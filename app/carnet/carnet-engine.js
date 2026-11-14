@@ -87,9 +87,6 @@ class CarnetApp {
         });
         title.addEventListener('input', () => this.refreshSaveButton());
         title.addEventListener('blur', () => { this.commitTitle(title.value); this.refreshSaveButton(); });
-        $('cn-bpm').addEventListener('change', (ev) => this.setSetting('bpm', ev.target.value));
-        $('cn-swing').addEventListener('change', (ev) => this.setSetting('swing', ev.target.value));
-        $('cn-instr').addEventListener('change', (ev) => this.setSetting('instrument', ev.target.value));
         $('cn-import-file').addEventListener('change', (ev) => this.importFile(ev.target));
         const tabs = $('cn-tabs');
         tabs.addEventListener('click', (ev) => {
@@ -206,44 +203,7 @@ class CarnetApp {
         const $ = (id) => document.getElementById(id);
         const t = $('cn-title');
         if (document.activeElement !== t) t.value = this.doc.title;
-        const s = this.doc.settings;
-        if (document.activeElement !== $('cn-bpm')) $('cn-bpm').value = String(s.bpm);
-        $('cn-swing').value = String(this._swingOption(s.swing));
-        $('cn-instr').value = s.instrument;
         document.title = this.doc.title ? `${this.doc.title} — Carnet de notes` : 'Carnet de notes';
-    }
-
-    // Le menu Swing propose 50 / 58 / 67 / 75 % ; une valeur venue d'un fichier (62 %…) est ajoutée à la liste.
-    _swingOption(v) {
-        const sel = document.getElementById('cn-swing');
-        if (sel && !Array.from(sel.options).some(o => o.value === String(v))) {
-            const o = document.createElement('option');
-            o.value = String(v); o.textContent = `${v} %`;
-            sel.appendChild(o);
-        }
-        return v;
-    }
-
-    // Un réglage de l'en-tête (tempo, swing, instrument) s'applique aussitôt à tous les blocs, portées et accords, de toutes les pages
-    // (une seule étape d'annulation) ; chaque bloc peut ensuite être réglé à part. Seul le réglage modifié est écrit dans les blocs.
-    setSetting(key, raw) {
-        const next = sanitizeCarnetSettings(Object.assign({}, this.doc.settings, { [key]: key === 'instrument' ? raw : Number(raw) }));
-        if (JSON.stringify(next) !== JSON.stringify(this.doc.settings)) {
-            this._flush(); // ce qui est en cours de saisie dans la page est enregistré d'abord
-            const cur = this.doc.pages[this.doc.current];
-            const before = cur ? cur.html : '';
-            this.withUndo(() => {
-                this.doc.settings = next;
-                this.doc.pages.forEach(p => { p.html = carnetApplyPlaySetting(p.html, key, next[key]); });
-            });
-            if (cur && cur.html !== before && this.zone) { // les blocs de la page affichée sont reconstruits avec leurs nouveaux réglages
-                const top = this.zone.scrollTop, left = this.zone.scrollLeft;
-                this._renderPage();
-                this.zone.scrollTop = top; this.zone.scrollLeft = left;
-            }
-        }
-        this.renderHeader(); // une valeur refusée (tempo hors limites) revient à la valeur en vigueur
-        const bpm = document.getElementById('cn-bpm'); if (bpm) bpm.value = String(this.doc.settings.bpm);
     }
 
     // Titre du carnet. Si le carnet est une sauvegarde, la sauvegarde est renommée avec lui.
@@ -1157,6 +1117,14 @@ class CarnetApp {
         this._annotRefreshState();
     }
 
+    // Bouton « Supprimer » de la barre : retire les blocs choisis et le bloc en édition (cadre, portée, accords ou dessin) ; une seule étape d'annulation.
+    annotDeleteSelection() {
+        const ed = this._annotActive;
+        if (!ed || !this._annotIsEditable(ed)) return;
+        const els = this._annotTargets().map(v => v.el).filter(el => el && el.parentNode === ed);
+        if (els.length) this._annotRemoveBlocks(ed, els);
+    }
+
     // Crée des blocs dans la zone à partir de morceaux [{ text }] / [{ staff }] / [{ chords }] / [{ frame }] (collage). Un bloc copié avec sa place revient à cette place
     // décalée de quelques pixels (pour voir qu'il s'agit d'un double) ; sans place, il prend la première place libre. Un texte ordinaire devient un cadre.
     _annotPasteParts(ed, parts) {
@@ -1261,7 +1229,7 @@ class CarnetApp {
         else if (t.closest('[data-insert-frame]')) this.annotInsertFrame();
         else if (t.closest('[data-insert-chords]')) this.annotInsertChords();
         else if (t.closest('[data-insert-draw]')) this.annotInsertDraw();
-        else if (t.closest('[data-clear]')) { this.annotCmd('removeFormat'); this.annotCmd('justifyLeft'); }
+        else if (t.closest('[data-delete]')) this.annotDeleteSelection();
     }
 
     // Zone d'écriture à utiliser si l'on clique sur la barre sans avoir choisi de zone : la page affichée (si elle est en édition).
@@ -1471,10 +1439,18 @@ class CarnetApp {
         const ed = this._annotActive;
         // La barre n'apparaît que pendant l'édition ; un bloc choisi d'un clic ou d'un glisser ne la fait pas surgir
         // (les zones ne sautent pas sous le pointeur) : elle vient avec un clic sur le fond de la zone, le crayon d'un bloc ou ⌘A.
-        const idle = !ed || !!this._annotQuiet;
+        // Au doigt, la barre reste visible dès qu'une zone est active : c'est là que se trouve « Supprimer » (pas de touche Suppr. sur une tablette).
+        const touch = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+        const idle = !ed || (!!this._annotQuiet && !touch);
         bar.classList.toggle('is-idle', idle);
         if (bar.parentElement) bar.parentElement.classList.toggle('jam-annot-barless', idle); // barre masquée : les zones prennent sa place
         const f = this._annotFrameEditing();
+        // Réglages du texte : seulement quand un cadre de texte est choisi ou en édition ; « Supprimer » : seulement quand un bloc l'est.
+        const hasText = !!f || this._annotPickedFrames().length > 0;
+        bar.classList.toggle('has-text', hasText);
+        if (!hasText && this._annotMenu) this._annotCloseMenu();
+        const del = bar.querySelector('[data-delete]');
+        if (del) del.hidden = !ed || this._annotTargets().length === 0;
         bar.querySelectorAll('[data-state]').forEach(b => {
             let on = false;
             try { on = !!(f && f.body.contains(window.getSelection().anchorNode) && document.queryCommandState(b.dataset.state)); } catch (e) {}
@@ -1691,7 +1667,7 @@ class CarnetApp {
             const view = { x: ed.scrollLeft / z, y: ed.scrollTop / z, w: ed.clientWidth / z, h: ed.clientHeight / z };
             pos = acEmptySpot(cv ? cv.blocks().map(b => cv.rectOf(b)) : [], { w, h: h || 60 }, { width: acCanvasWidth(ed), view });
         }
-        pos.x = Math.max(0, Math.min(pos.x, Math.max(0, acCanvasWidth(ed) - w - 12)));
+        pos.x = Math.max(0, Math.min(pos.x, Math.max(0, acCanvasWidth(ed) - w - AC_GUTTER)));
         pos.y = Math.max(0, pos.y);
         return pos;
     }
@@ -1714,7 +1690,7 @@ class CarnetApp {
     }
 
     // Réglages de lecture d'un nouveau bloc (portée ou accords) : ceux du dernier bloc créé (tempo, swing, instrument tels qu'il les joue) ;
-    // sans bloc sur la page, ceux du carnet (en-tête). Chaque bloc garde ensuite les siens.
+    // sans bloc sur la page, ceux par défaut du carnet (tempo 100, swing droit, en Si♭). Chaque bloc garde ensuite les siens, réglés dans son éditeur.
     _annotNewBlockSettings(ed) {
         const base = this.doc.settings;
         let last = this._annotLastBlock && this._annotLastBlock.isConnected && ed.contains(this._annotLastBlock) ? this._annotLastBlock : null;
@@ -1908,36 +1884,45 @@ class CarnetApp {
         this._annotSyncReadPlay();
     }
 
-    // Lecture : hors édition, chaque portée garde un bouton ▶ pour l'écouter (en édition, ses outils ont leur propre bouton).
-    // Ces boutons ne sont jamais enregistrés (annotationHtmlForSave reconstruit chaque bloc à partir de son seul texte).
+    // Lecture : hors édition, chaque portée garde un bouton ▶ pour l'écouter (en édition, ses outils ont leur propre bouton). Un bloc d'accords a en plus,
+    // au-dessus de ▶, un chevron qui le joue en arpège (▶ le joue plaqué). Ces boutons sont à droite du bloc, jamais dans son espace ; ils ne sont jamais
+    // enregistrés (annotationHtmlForSave reconstruit chaque bloc à partir de son seul texte).
     _annotSyncReadPlay() {
         const ed = this.zone;
         if (!ed) return;
-        ed.querySelectorAll('.cn-staff-play').forEach((b) => b.remove());
+        ed.querySelectorAll('.cn-staff-play, .cn-staff-arp').forEach((b) => b.remove());
         if (this._annotIsEditable(ed)) return;
         ed.querySelectorAll('.annot-staff, .annot-chords').forEach((el) => {
             const v = el.__noteStaff || el.__chordBlock;
             if (!v || (el.__noteStaff && (!v.st || !v.st.ev.length))) return;
-            const what = el.__chordBlock ? 'les accords' : 'la portée';
-            const b = document.createElement('button');
-            b.type = 'button'; b.className = 'cn-staff-play'; b.setAttribute('contenteditable', 'false');
-            b.title = `Écouter ${what}`; b.setAttribute('aria-label', `Écouter ${what}`); b.textContent = '▶';
-            b.addEventListener('pointerdown', (ev) => ev.stopPropagation());
-            b.addEventListener('click', (ev) => { ev.stopPropagation(); this._annotTogglePlay(el, b); });
-            el.appendChild(b);
+            const chords = !!el.__chordBlock;
+            const what = chords ? 'les accords' : 'la portée';
+            const mk = (cls, idle, title, mode) => {
+                const b = document.createElement('button');
+                b.type = 'button'; b.className = cls; b.setAttribute('contenteditable', 'false');
+                b.title = title; b.setAttribute('aria-label', title); b.innerHTML = idle; b.dataset.idle = idle;
+                b.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+                b.addEventListener('click', (ev) => { ev.stopPropagation(); this._annotTogglePlay(el, b, mode); });
+                el.appendChild(b);
+            };
+            if (chords) mk('cn-staff-arp', CHB_ARP_ICON, 'Écouter les accords en arpège', 'a');
+            mk('cn-staff-play', '▶', chords ? 'Écouter les accords (plaqués)' : `Écouter ${what}`, 'b');
         });
     }
 
-    _annotTogglePlay(el, b) {
+    // ▶ (mode 'b') et chevron (mode 'a') : le même bouton relance ou arrête ; un seul bloc joue à la fois.
+    _annotTogglePlay(el, b, mode) {
         const v = el.__noteStaff || el.__chordBlock;
         if (!v) return;
-        if (v.playing) { v.stop(); b.textContent = '▶'; b.classList.remove('is-on'); return; }
+        const btns = Array.from(el.querySelectorAll(':scope > .cn-staff-play, :scope > .cn-staff-arp'));
+        const idle = () => btns.forEach((x) => { x.innerHTML = x.dataset.idle; x.classList.remove('is-on'); });
+        if (v.playing) { v.stop(); idle(); return; }
         this.zone.querySelectorAll('.annot-staff, .annot-chords').forEach((o) => { const ov = o.__noteStaff || o.__chordBlock; if (o !== el && ov && ov.playing) ov.stop(); });
-        v.play();
+        if (el.__chordBlock) v.play(undefined, mode); else v.play();
         b.textContent = '■'; b.classList.add('is-on');
         const poll = setInterval(() => {
             if (!b.isConnected) { clearInterval(poll); return; }
-            if (!v.playing) { clearInterval(poll); b.textContent = '▶'; b.classList.remove('is-on'); }
+            if (!v.playing) { clearInterval(poll); idle(); }
         }, 200);
     }
 
