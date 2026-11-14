@@ -13,7 +13,7 @@
 
 importScripts('app/audio/local-soundfonts.js'); // définit LOCAL_SOUNDFONT_FILES
 
-const SHELL_CACHE = 'carnet-shell-v7';
+const SHELL_CACHE = 'carnet-shell-v8';
 const SOUNDS_CACHE = 'carnet-sounds-v1';
 const SHELL_TIMEOUT_MS = 3000;
 
@@ -45,6 +45,7 @@ const SHELL_FILES = [
     'app/ui/draw-block.js',
     'app/ui/annot-bar.js',
     'app/carnet/carnet-history.js',
+    'app/carnet/carnet-sync.js',
     'app/carnet/carnet-engine.js'
 ];
 

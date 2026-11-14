@@ -3,6 +3,7 @@
 // (tempo, swing, instrument transpositeur). Ce fichier réunit :
 //   - le document : pages (ajout, nom, copie, ordre, suppression), titre, réglages, annulation / rétablissement (carnet-history.js) ;
 //   - la sauvegarde : carnets nommés gardés dans le navigateur, brouillon automatique, export / import d'un fichier .json ;
+//   - la synchro entre appareils (carnet-sync.js) : les carnets sauvegardés sont copiés dans un dépôt GitHub privé ;
 //   - le son : le piano lit les portées ;
 //   - le module d'annotation de Chord Scales (zone-canevas, barre de mise en forme, cadres, portées, presse-papiers, zoom, mode édition),
 //     repris de son moteur (index.html, JamEngine « Onglet Annotations ») et branché sur une seule zone : la page affichée.
@@ -31,6 +32,13 @@ class CarnetApp {
             if (z && Number.isFinite(z.page)) this.annotZoom.page = acClampZoom(z.page);
         } catch (e) {}
         this._saved = null;                     // cache des carnets sauvegardés (voir getSaved)
+        this.sync = new CarnetSync({            // synchro entre appareils (dépôt GitHub privé) : voir « Synchro » plus bas
+            fetch: (url, init) => fetch(url, init),
+            storage: { getItem: cnStore, setItem: (k, v) => { if (!cnStoreSet(k, v)) throw new Error('stockage'); }, removeItem: (k) => { try { localStorage.removeItem(k); } catch (e) {} } },
+            getSaved: () => this.getSaved(),
+            setSaved: (obj) => this._storeSaved(obj)
+        });
+        this._syncBusy = false; this._syncAgain = false; this._syncT = null; this._syncModal = null;
         this.audioCtx = null;
         this.pianoInstrument = null;
         this.reverbInput = null;
@@ -44,6 +52,8 @@ class CarnetApp {
         const restored = this._restoreDraft();
         if (!restored) this.annotEdit.page = true; // carnet neuf : on peut écrire tout de suite
         this.renderAll();
+        this.refreshSyncButton();
+        this._syncSoon(300);
         const wake = () => { if (!this.pianoInstrument) this.loadPiano(); window.removeEventListener('click', wake); window.removeEventListener('keydown', wake); };
         window.addEventListener('click', wake);
         window.addEventListener('keydown', wake);
@@ -110,6 +120,12 @@ class CarnetApp {
         }, true);
         document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && this._menu) this._closeMenu(); });
         window.addEventListener('pagehide', () => { try { this._flush(); } catch (e) {} this._writeDraft(); });
+        // Sur tablette et téléphone, passer à une autre appli ne déclenche pas toujours « pagehide » : on valide le texte en cours et on garde le brouillon.
+        // Au retour (ou dès que le réseau revient), la synchro cherche ce qui a changé sur les autres appareils.
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) { try { this._commitLive(); } catch (e) {} this._writeDraft(); } else this._syncSoon(500);
+        });
+        window.addEventListener('online', () => this._syncSoon(500));
     }
 
     // ===== État du document, annulation =====
@@ -445,7 +461,7 @@ class CarnetApp {
         const titleChanged = typing && inp.value.trim() !== (this.doc.title || '');
         const dirty = titleChanged || this._hasUnsavedWork();
         btn.classList.toggle('is-dirty', dirty);
-        const tip = dirty ? 'Sauvegarder le carnet (⌘S) — modifications non enregistrées' : (this.name ? `Carnet « ${this.name} » sauvegardé` : 'Sauvegarder le carnet (⌘S)');
+        const tip = (dirty ? 'Sauvegarder le carnet (⌘S) — modifications non enregistrées' : (this.name ? `Carnet « ${this.name} » sauvegardé` : 'Sauvegarder le carnet (⌘S)')) + this._syncTip();
         if (btn.title !== tip) { btn.title = tip; btn.setAttribute('aria-label', tip); }
     }
 
@@ -467,6 +483,7 @@ class CarnetApp {
         if (!this._storeSaved(saved)) { alert("Impossible d'enregistrer le carnet (espace du navigateur plein ?). Exportez-le en fichier .json."); return; }
         this.name = title;
         this.refreshSaveButton();
+        this.runSync(false);                      // la sauvegarde locale est faite : la synchro part dans la foulée (si elle est configurée)
         const btn = document.getElementById('cn-save');
         if (btn) {
             btn.classList.add('just-saved'); // coche verte un court instant
@@ -510,6 +527,8 @@ class CarnetApp {
         if (!this._storeSaved(saved)) { alert('Impossible de supprimer la sauvegarde.'); return; }
         if (this.name === name) this.name = null; // le carnet affiché reste à l'écran, simplement non sauvegardé
         this.refreshSaveButton();
+        this.sync.noteDeleted(name);              // suppression voulue : la synchro la répercutera dans le dépôt
+        this.runSync(false);
     }
 
     // Bouton « Ouvrir » : la liste des carnets sauvegardés.
@@ -518,8 +537,9 @@ class CarnetApp {
         const names = Object.keys(saved).sort((a, b) => a.localeCompare(b, 'fr'));
         const rows = names.map(n => `<div class="cn-menu-row"><button type="button" class="cn-menu-item cn-menu-name${n === this.name ? ' is-on' : ''}" data-act="open" data-name="${cnEsc(n)}">${cnEsc(n)}</button>`
             + `<button type="button" class="cn-menu-del" data-act="del" data-name="${cnEsc(n)}" title="Supprimer « ${cnEsc(n)} »" aria-label="Supprimer « ${cnEsc(n)} »">×</button></div>`).join('');
-        this._openMenu(anchor, 'cn-menu-saved', names.length ? rows : '<div class="cn-menu-empty">Aucun carnet sauvegardé.<br>Donnez un titre au carnet puis cliquez sur la disquette.</div>',
-            (act, name) => { if (act === 'open') this.openSaved(name); else if (act === 'del') { this.deleteSaved(name); this.openSavedMenu(anchor); } });
+        const syncRow = '<div class="cn-menu-sep"></div><button type="button" class="cn-menu-item" data-act="sync">⚙ Synchronisation entre appareils…</button>';
+        this._openMenu(anchor, 'cn-menu-saved', (names.length ? rows : '<div class="cn-menu-empty">Aucun carnet sauvegardé.<br>Donnez un titre au carnet puis cliquez sur la disquette.</div>') + syncRow,
+            (act, name) => { if (act === 'open') this.openSaved(name); else if (act === 'sync') this.openSyncPanel(); else if (act === 'del') { this.deleteSaved(name); this.openSavedMenu(anchor); } });
     }
 
     exportFile() {
@@ -550,6 +570,202 @@ class CarnetApp {
         };
         reader.onerror = () => alert('Impossible de lire ce fichier.');
         reader.readAsText(file);
+    }
+
+    // ===== Synchro entre appareils (dépôt GitHub privé, voir carnet-sync.js) =====
+    // Ce qui est synchronisé : les carnets sauvegardés (menu « Ouvrir »). Le brouillon du carnet affiché reste sur l'appareil tant qu'il n'est pas sauvegardé.
+    // Se déclenche à l'ouverture, au retour sur l'appli, quand le réseau revient, après chaque sauvegarde ou suppression, et à la demande.
+
+    // Le texte tapé mais pas encore validé dans la page affichée est enregistré dans le carnet (sans quitter le champ).
+    _commitLive() {
+        const ed = (this._annotActive && this._annotActive.isConnected) ? this._annotActive : (this._annotStaffTimer ? this.zone : null);
+        if (ed) this._annotCommit(ed);
+    }
+
+    _syncSoon(ms) {
+        if (!this.sync.isConfigured()) return;
+        clearTimeout(this._syncT);
+        this._syncT = setTimeout(() => this.runSync(false), ms === undefined ? 600 : ms);
+    }
+
+    // manual : lancée depuis le panneau (on affiche toujours le résultat) ; sinon seuls les conflits et les vraies erreurs sont signalés.
+    async runSync(manual) {
+        if (!this.sync.isConfigured()) { if (manual) this.openSyncPanel(); return null; }
+        if (this._syncBusy) { this._syncAgain = true; return null; }
+        this._syncBusy = true;
+        this.refreshSyncButton();
+        let res = null;
+        try {
+            for (let attempt = 0; attempt < 2; attempt++) { // un 2e passage si GitHub a refusé une écriture parce que le dépôt venait de changer
+                this._commitLive();
+                const openName = this.name, wasClean = !!openName && this._isClean(), snap0 = this._snap();
+                res = await this.sync.sync({ busyName: openName && !wasClean ? openName : null });
+                this._afterSync(res, openName, wasClean, snap0);
+                if (!(res.ok && res.retry)) break;
+            }
+        } finally {
+            this._syncBusy = false;
+        }
+        this.refreshSyncButton();
+        this._syncReport(res, !!manual);
+        if (this._syncAgain) { this._syncAgain = false; this._syncSoon(300); }
+        return res;
+    }
+
+    // Le carnet affiché a-t-il été touché par la synchro ? Mis à jour s'il n'avait pas de modification non sauvegardée (↶ ramène l'ancienne version).
+    _afterSync(res, openName, wasClean, snap0) {
+        if (!res || !res.ok || !openName || this.name !== openName) return;
+        this._commitLive();
+        if (this._snap() !== snap0) return; // l'utilisateur a travaillé pendant la synchro : on ne touche à rien
+        if (res.deleted.includes(openName)) { this.name = null; this.refreshSaveButton(); this._syncNote(`« ${openName} » a été supprimé depuis un autre appareil : il reste affiché ici, non sauvegardé.`); return; }
+        if (!wasClean || !res.pulled.includes(openName)) return;
+        const c = sanitizeCarnet(this.getSaved()[openName]);
+        if (!c) return;
+        c.title = openName;
+        this._flush();
+        this.withUndo(() => { const cur = this.doc.current; this.doc = c; this.doc.current = Math.max(0, Math.min(cur, c.pages.length - 1)); });
+        this.renderAll();
+        this._syncNote(`« ${openName} » mis à jour depuis un autre appareil (↶ pour revenir à la version d'avant).`);
+    }
+
+    _syncReport(res, manual) {
+        if (!res) return;
+        if (this._syncModal) this._renderSyncStatus();
+        if (!res.ok) { if (manual || res.error.code !== 'network') this._syncNote(res.error.message, true); return; }
+        if (res.conflicts.length) { const c = res.conflicts[0]; this._syncNote(`Conflit sur « ${c.name} » : la version de l'autre appareil est gardée à côté, sous « ${c.copy} ».`); }
+        else if (manual) this._syncNote(csyDescribe(res));
+    }
+
+    // Petit message en bas de l'écran, qui s'efface seul.
+    _syncNote(text, isError) {
+        let t = document.getElementById('cn-sync-toast');
+        if (!t) {
+            t = document.createElement('div');
+            t.id = 'cn-sync-toast';
+            t.setAttribute('role', 'status');
+            t.setAttribute('aria-live', 'polite');
+            document.body.appendChild(t);
+        }
+        t.textContent = text;
+        t.classList.toggle('is-error', !!isError);
+        t.hidden = false;
+        clearTimeout(this._syncToastT);
+        this._syncToastT = setTimeout(() => { t.hidden = true; }, isError ? 9000 : 6000);
+    }
+
+    _syncWhen(iso) {
+        const d = new Date(iso);
+        return isNaN(d) ? '' : d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    }
+
+    // État de la synchro, porté par la disquette : pastille bleue = en cours, orange = hors connexion, rouge = erreur ; rien si tout va bien ou si la synchro n'est pas configurée.
+    refreshSyncButton() {
+        const btn = document.getElementById('cn-save');
+        if (!btn) return;
+        let state = 'off';
+        if (this.sync.isConfigured()) {
+            const last = this.sync.lastSync();
+            if (this._syncBusy) state = 'busy';
+            else if (!last) state = 'idle';
+            else if (last.ok) state = 'ok';
+            else state = last.code === 'network' ? 'offline' : 'err';
+        }
+        btn.dataset.sync = state;
+        this.refreshSaveButton();
+    }
+
+    // Fin de l'infobulle de la disquette : où en est la synchro.
+    _syncTip() {
+        if (!this.sync.isConfigured()) return '';
+        const last = this.sync.lastSync();
+        if (this._syncBusy) return ' — synchronisation en cours…';
+        if (!last) return ' — synchro configurée, pas encore faite';
+        if (last.ok) return ` — synchronisé le ${this._syncWhen(last.at)} (${last.message})`;
+        if (last.code === 'network') return ` — hors connexion, dernière tentative le ${this._syncWhen(last.at)}`;
+        return ` — erreur de synchro : ${last.message}`;
+    }
+
+    _renderSyncStatus() {
+        const el = document.getElementById('cn-sync-status');
+        if (!el) return;
+        const last = this.sync.lastSync();
+        el.classList.toggle('is-error', !!(last && !last.ok));
+        if (!this.sync.isConfigured()) el.textContent = 'Pas encore configurée sur cet appareil.';
+        else if (this._syncBusy) el.textContent = 'Synchronisation en cours…';
+        else if (!last) el.textContent = 'Configurée. Pas encore synchronisé.';
+        else el.textContent = (last.ok ? 'Dernière synchro réussie : ' : 'Dernière tentative échouée : ') + this._syncWhen(last.at) + ' — ' + last.message;
+        const cfg = this.sync.isConfigured();
+        const now = document.getElementById('cn-sync-now'), stop = document.getElementById('cn-sync-stop');
+        if (now) { now.hidden = !cfg; now.disabled = this._syncBusy; }
+        if (stop) stop.hidden = !cfg;
+    }
+
+    closeSyncPanel() {
+        const m = this._syncModal;
+        if (!m) return;
+        this._syncModal = null;
+        m.remove();
+    }
+
+    openSyncPanel() {
+        this._closeMenu();
+        if (this._syncModal) return;
+        const cfg = this.sync.getConfig();
+        const el = document.createElement('div');
+        el.className = 'cn-modal';
+        el.id = 'cn-sync-modal';
+        el.setAttribute('role', 'dialog');
+        el.setAttribute('aria-modal', 'true');
+        el.setAttribute('aria-labelledby', 'cn-sync-h');
+        el.innerHTML = `<div class="cn-modal-card">
+            <h2 id="cn-sync-h">Synchronisation entre appareils</h2>
+            <p class="cn-modal-p">Les carnets <b>sauvegardés</b> (disquette, menu « Ouvrir ») sont copiés dans un dépôt GitHub <b>privé</b> et retrouvés sur vos autres appareils. Le brouillon d'un carnet pas encore sauvegardé reste sur l'appareil. En cas de modification des deux côtés, rien n'est perdu : la version de l'autre appareil est gardée à côté.</p>
+            <label class="cn-modal-field"><span>Dépôt GitHub</span>
+                <input id="cn-sync-repo" type="text" inputmode="url" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="votre-identifiant/carnet-data" value="${cfg ? cnEsc(cfg.repoText) : ''}"></label>
+            <label class="cn-modal-field"><span>Jeton d'accès</span>
+                <input id="cn-sync-token" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="${cfg ? 'jeton enregistré — laisser vide pour le garder' : 'github_pat_…'}"></label>
+            <details class="cn-modal-help"><summary>Comment obtenir le dépôt et le jeton ?</summary>
+                <ol>
+                    <li>Sur github.com, créez un dépôt <b>privé</b> (par exemple <code>carnet-data</code>) en cochant « Add a README file ».</li>
+                    <li>Ouvrez <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com/settings/personal-access-tokens/new</a> : choisissez une durée, « Only select repositories » → ce dépôt, puis « Repository permissions » → <b>Contents : Read and write</b>. Copiez le jeton affiché.</li>
+                    <li>Collez le dépôt et le jeton ici, <b>sur chaque appareil</b> (le jeton reste dans le navigateur de l'appareil).</li>
+                </ol>
+            </details>
+            <div id="cn-sync-status" class="cn-modal-status" role="status" aria-live="polite"></div>
+            <div class="cn-modal-actions">
+                <button type="button" class="cn-btn cn-btn-primary" id="cn-sync-save">Enregistrer et synchroniser</button>
+                <button type="button" class="cn-btn" id="cn-sync-now" hidden>Synchroniser maintenant</button>
+                <button type="button" class="cn-btn cn-btn-danger" id="cn-sync-stop" hidden>Arrêter sur cet appareil</button>
+                <button type="button" class="cn-btn" id="cn-sync-close">Fermer</button>
+            </div>
+        </div>`;
+        document.body.appendChild(el);
+        this._syncModal = el;
+        const $ = (id) => document.getElementById(id);
+        el.addEventListener('pointerdown', (ev) => { if (ev.target === el) this.closeSyncPanel(); });
+        el.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') { ev.stopPropagation(); this.closeSyncPanel(); } });
+        $('cn-sync-close').addEventListener('click', () => this.closeSyncPanel());
+        $('cn-sync-save').addEventListener('click', () => {
+            const cur = this.sync.getConfig();
+            const err = this.sync.setConfig($('cn-sync-repo').value, $('cn-sync-token').value.trim() || (cur ? cur.token : ''));
+            if (err) { const st = $('cn-sync-status'); st.textContent = err; st.classList.add('is-error'); return; }
+            $('cn-sync-token').value = '';
+            $('cn-sync-token').placeholder = 'jeton enregistré — laisser vide pour le garder';
+            this.refreshSyncButton();
+            this._renderSyncStatus();
+            this.runSync(true);
+        });
+        $('cn-sync-now').addEventListener('click', () => this.runSync(true));
+        $('cn-sync-stop').addEventListener('click', () => {
+            if (!confirm("Arrêter la synchro sur cet appareil ?\n\nLe jeton est oublié ici ; les carnets restent sur cet appareil et dans le dépôt GitHub.")) return;
+            clearTimeout(this._syncT);
+            this.sync.clearConfig();
+            $('cn-sync-token').placeholder = 'github_pat_…';
+            this.refreshSyncButton();
+            this._renderSyncStatus();
+        });
+        this._renderSyncStatus();
+        (cfg ? $('cn-sync-now') : $('cn-sync-repo')).focus({ preventScroll: true });
     }
 
     // Brouillon : le carnet affiché est gardé tout seul, il revient tel quel à la réouverture (même sans l'avoir sauvegardé).
@@ -1484,6 +1700,7 @@ class CarnetApp {
         const before = new Set(ed.querySelectorAll('.annot-draw'));
         const holder = document.createElement('div');
         const st = drawDefault();
+        st.bg = 't';   // fond transparent par défaut
         holder.innerHTML = drawStubHtml(st, this._annotNewSpot(ed, null, st.w), true);
         ed.appendChild(holder.firstChild);
         this._annotHydrate(ed);

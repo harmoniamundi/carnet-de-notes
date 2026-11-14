@@ -496,7 +496,7 @@ body { background: #121212; color: #f1f5f9; font: 14px/1.4 system-ui, -apple-sys
 @media (pointer: coarse) { .dr-sw { width: 34px; height: 34px; border-radius: 17px; } }
 
 /* Dessin : fond du cadre (damier = transparent), titres de section, taille de la gomme */
-.dr-sw-none { background: #fff linear-gradient(45deg, #cbd5e1 25%, transparent 25%, transparent 75%, #cbd5e1 75%), linear-gradient(45deg, #cbd5e1 25%, transparent 25%, transparent 75%, #cbd5e1 75%); background-size: 10px 10px; background-position: 0 0, 5px 5px; }
+.dr-sw-none { background: #fff linear-gradient(to top right, transparent calc(50% - 1.5px), #dc2626 calc(50% - 1.5px), #dc2626 calc(50% + 1.5px), transparent calc(50% + 1.5px)); }   /* fond transparent : rond blanc barré */
 .cn-draw-pop .dr-sec { margin-top: 12px; font-size: 12px; opacity: .7; }
 @media (pointer: coarse) and (max-width: 520px) { .cn-draw-pop .dr-row { gap: 5px; margin-top: 7px; } .cn-draw-pop .dr-sw { width: 28px; height: 28px; border-radius: 14px; } .cn-draw-pop .dr-sec { margin-top: 9px; } }   /* téléphone : une seule ligne de pastilles, pour laisser le cadre visible */
 
@@ -505,3 +505,43 @@ body { background: #121212; color: #f1f5f9; font: 14px/1.4 system-ui, -apple-sys
 .jm-pop.is-moving > .jm-head { cursor: grabbing; }
 .jm-pop.is-moving { opacity: .92; }
 .cn-draw-pop .dr-row:not(.jm-mode) > .jm-chip { flex: 0 0 auto; width: auto; padding-left: 12px; padding-right: 12px; }   /* options « Pression du stylet », « Le dessin suit le cadre » : à leur taille */
+
+/* ===== Synchro entre appareils (bouton « Synchro », panneau, message) ===== */
+/* La synchro se fait avec la sauvegarde (disquette) : une pastille sur la disquette n'apparaît que si quelque chose demande l'attention. */
+.cn-save::after { content: ''; display: none; position: absolute; top: -3px; right: -3px; width: 10px; height: 10px; box-sizing: border-box; border: 2px solid #121212; border-radius: 50%; pointer-events: none; }
+.cn-save[data-sync="busy"]::after { display: block; background: #60a5fa; animation: cn-sync-pulse 1s ease-in-out infinite; }
+.cn-save[data-sync="offline"]::after { display: block; background: #f59e0b; }
+.cn-save[data-sync="err"]::after { display: block; background: #ef4444; }
+@keyframes cn-sync-pulse { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .cn-save[data-sync="busy"]::after { animation: none; } }
+.cn-menu-sep { height: 1px; margin: 4px 2px; background: #3a3a3c; }
+
+.cn-modal { position: fixed; inset: 0; z-index: 2200; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0, 0, 0, .55); }
+.cn-modal-card { width: min(480px, 100%); max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow: auto; padding: 16px 18px; background: #1f1f21; color: #e2e8f0; border: 1px solid #3a3a3c; border-radius: 14px; box-shadow: 0 12px 40px rgba(0, 0, 0, .5); font: 13px/1.45 system-ui, -apple-system, sans-serif; }
+.cn-modal-card h2 { margin: 0 0 8px; font-size: 15px; }
+.cn-modal-p { margin: 0 0 12px; color: #cbd5e1; }
+.cn-modal-field { display: block; margin: 0 0 10px; }
+.cn-modal-field > span { display: block; margin-bottom: 4px; font-weight: 600; font-size: 12px; color: #94a3b8; }
+.cn-modal-field input { width: 100%; box-sizing: border-box; height: 36px; padding: 0 10px; border-radius: 8px; border: 1px solid #3a3a3c; background: #2a2a2c; color: #e2e8f0; font: 14px system-ui, sans-serif; }
+.cn-modal-field input:focus { outline: none; border-color: #60a5fa; }
+.cn-modal-help { margin: 0 0 12px; color: #cbd5e1; }
+.cn-modal-help summary { cursor: pointer; color: #93c5fd; }
+.cn-modal-help ol { margin: 8px 0 0; padding-left: 20px; }
+.cn-modal-help li { margin-bottom: 6px; }
+.cn-modal-help a { color: #93c5fd; }
+.cn-modal-help code { padding: 1px 4px; border-radius: 4px; background: #2a2a2c; }
+.cn-modal-status { min-height: 18px; margin: 0 0 12px; color: #94a3b8; }
+.cn-modal-status.is-error { color: #fca5a5; }
+.cn-modal-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.cn-modal-actions .cn-btn { height: 36px; }
+.cn-modal-actions .cn-btn[hidden] { display: none; }
+.cn-btn-primary { background: #2563eb; border-color: #3b82f6; color: #fff; }
+.cn-btn-primary:hover:not(:disabled) { background: #3b82f6; border-color: #93c5fd; }
+.cn-btn-danger { color: #fca5a5; }
+.cn-btn-danger:hover:not(:disabled) { border-color: #f87171; }
+
+#cn-sync-toast { position: fixed; left: 50%; bottom: max(14px, env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 2300; max-width: min(520px, calc(100vw - 24px)); padding: 9px 14px; border-radius: 12px;
+    background: #1f2937; color: #e2e8f0; border: 1px solid #374151; box-shadow: 0 6px 24px rgba(0, 0, 0, .45); font: 600 12px/1.4 system-ui, -apple-system, sans-serif; text-align: center; }
+#cn-sync-toast.is-error { background: #3f1d1d; border-color: #7f1d1d; color: #fecaca; }
+#cn-sync-toast[hidden] { display: none; }
+@media print { .cn-modal, #cn-sync-toast { display: none !important; } }

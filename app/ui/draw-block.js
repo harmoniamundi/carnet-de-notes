@@ -109,7 +109,7 @@ class DrawBlockView {
         el.setAttribute('contenteditable', 'false');
         el.setAttribute('role', 'group');
         el.setAttribute('aria-label', 'Cadre de dessin');
-        el.classList.toggle('no-border', !this.border);
+        el.classList.toggle('no-border', !this.border || drawBg(this.st.bg) === 't'); // fond transparent : pas de cadre visible
         el.innerHTML = '';
         this.editBtn = document.createElement('button');
         this.editBtn.type = 'button'; this.editBtn.className = 'annot-draw-edit'; this.editBtn.setAttribute('contenteditable', 'false');
@@ -148,6 +148,7 @@ class DrawBlockView {
         this.el.style.width = `${w}px`;
         this.el.style.height = `${h}px`;
         this.el.style.background = drawBgCss(this.st.bg);   // '' : fond de la feuille de style (blanc, transparent sans bord)
+        this.el.classList.toggle('no-border', !this.border || drawBg(this.st.bg) === 't'); // fond transparent : pas de cadre visible
         this.el.setAttribute('data-draw', drawFormat(this.st));
     }
 
@@ -181,7 +182,7 @@ class DrawBlockView {
         on = !!on;
         if (on === this.border) return false;
         this.border = on;
-        this.el.classList.toggle('no-border', !on);
+        this.el.classList.toggle('no-border', !on || drawBg(this.st.bg) === 't');
         if (on) this.el.removeAttribute('data-border'); else this.el.setAttribute('data-border', '0');
         return true;
     }
