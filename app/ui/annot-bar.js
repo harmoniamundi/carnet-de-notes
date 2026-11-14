@@ -108,7 +108,7 @@ function annotBarHtml() {
         <div class="ab-grp" role="group" aria-label="Insérer">
             ${btn('♯ ♩ ▾', 'data-menu="insert" aria-haspopup="true"', 'Insérer un symbole ou une nuance', 'ab-txt')}
             ${btn('<svg width="18" height="16" viewBox="0 0 18 16" aria-hidden="true"><path d="M1 3h16M1 6.5h16M1 10h16M1 13.5h16" stroke="currentColor" stroke-width="1.2" fill="none"/><ellipse cx="9" cy="10" rx="2.6" ry="1.9" transform="rotate(-20 9 10)" fill="currentColor"/><path d="M11.4 9V1.5" stroke="currentColor" stroke-width="1.3"/></svg> Portée', 'data-insert-staff="1"', 'Ajouter une portée éditable (à la première place libre de la zone)', 'ab-txt ab-staff')}
-            ${btn(ANNOT_FRAME_ICON + ' Cadre', 'data-insert-frame="1"', 'Ajouter un cadre de texte (ou double-clic sur le fond de la zone) : on écrit dedans ; une fois sorti de l\'édition, on le déplace, et on l\'agrandit ou le réduit en tirant sur ses bords et ses coins (le texte suit)', 'ab-txt ab-frame')}
+            ${btn(ANNOT_FRAME_ICON + ' Texte', 'data-insert-frame="1"', 'Ajouter un texte, dans un cadre (ou double-clic sur le fond de la zone) : on écrit dedans ; une fois sorti de l\'édition, on le déplace, et on l\'agrandit ou le réduit en tirant sur ses bords et ses coins (le texte suit)', 'ab-txt ab-frame')}
             ${btn(ANNOT_DRAW_ICON + ' Dessin', 'data-insert-draw="1"', 'Ajouter un cadre de dessin libre : on dessine à la souris, au stylet ou au doigt, avec le choix de la couleur, de l\'épaisseur et de la gomme', 'ab-txt ab-draw')}
             ${btn(ANNOT_CHORDS_ICON + ' Accords', 'data-insert-chords="1"', 'Ajouter un bloc d\'accords jouables : on choisit chaque accord (fondamentale, qualité, tensions), sa durée, et on l\'écoute au piano (plaqué ou arpégé)', 'ab-txt ab-chords')}
         </div>
@@ -147,6 +147,17 @@ function annotModeHtml(which) {
     const t = 'Modifier les annotations (déplacer, écrire, ajouter des blocs)';
     return `<button type="button" class="ab-btn jam-annot-pencil" data-annot-mode="${which}" aria-pressed="false" title="${t}" aria-label="${t}"
         onmousedown="event.preventDefault()" onclick="app.annotToggleMode('${which}')">${ANNOT_PENCIL_ICON}</button>`;
+}
+// Plein écran (faux : on masque l'en-tête du carnet, l'API plein écran n'existe pas sur iPhone) : un bouton icône en bout d'en-tête de la zone, qui reste visible dans les deux états.
+const ANNOT_FS_ICONS = {
+    enter: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    exit: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2v4H2M14 6h-4V2M10 14v-4h4M2 10h4v4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+};
+const ANNOT_FS_TITLES = { enter: 'Plein écran', exit: 'Quitter le plein écran' };
+function annotFullscreenHtml(on) {
+    const k = on ? 'exit' : 'enter';
+    return `<button type="button" class="ab-btn at-btn jam-annot-fs" data-annot-fs aria-pressed="${on ? 'true' : 'false'}" title="${ANNOT_FS_TITLES[k]}" aria-label="${ANNOT_FS_TITLES[k]}"
+        onmousedown="event.preventDefault()" onclick="app.toggleFullscreen()">${ANNOT_FS_ICONS[k]}</button>`;
 }
 function annotZoomHtml(which) {
     const b = (act, label, title) => `<button type="button" class="ab-btn at-btn jam-annot-zbtn" data-zoom-act="${act}" title="${title}" aria-label="${title}"
@@ -188,5 +199,5 @@ function annotMenuHtml(kind, state = {}) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { ANNOT_SIZE_MIN, ANNOT_SIZE_MAX, ANNOT_SIZE_DEFAULT, ANNOT_SIZE_STEPS, ANNOT_FONT_DEFAULT_CSS, ANNOT_FONT_CHOICES, nextAnnotSize, clampAnnotSize, annotFontLabel, annotBarHtml, annotMenuHtml, annotToolsHtml, ANNOT_TOOLS, ANNOT_ZONES, annotModeHtml, annotZoomHtml };
+    module.exports = { ANNOT_SIZE_MIN, ANNOT_SIZE_MAX, ANNOT_SIZE_DEFAULT, ANNOT_SIZE_STEPS, ANNOT_FONT_DEFAULT_CSS, ANNOT_FONT_CHOICES, nextAnnotSize, clampAnnotSize, annotFontLabel, annotBarHtml, annotMenuHtml, annotToolsHtml, ANNOT_TOOLS, ANNOT_ZONES, annotModeHtml, annotZoomHtml, annotFullscreenHtml, ANNOT_FS_TITLES };
 }

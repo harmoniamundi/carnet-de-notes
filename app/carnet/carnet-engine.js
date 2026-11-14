@@ -67,7 +67,7 @@ class CarnetApp {
                     oncopy="app.annotCopy(event)" oncut="app.annotCopy(event, true)" ondrop="event.preventDefault()"`;
         stage.innerHTML = `${annotBarHtml()}
             <div class="jam-annot-zone">
-                <div class="jam-annot-head"><span class="jam-annot-title" id="cn-page-title"></span>${annotModeHtml('page')}${annotZoomHtml('page')}${annotToolsHtml()}</div>
+                <div class="jam-annot-head"><span class="jam-annot-title" id="cn-page-title"></span>${annotModeHtml('page')}${annotZoomHtml('page')}${annotToolsHtml()}${annotFullscreenHtml(false)}</div>
                 <div id="cn-page" class="jam-annot-text" data-editable="false" data-can-edit="true" role="group" spellcheck="false"
                     aria-label="Page du carnet" data-placeholder="" ${handlers}></div>
             </div>`;
@@ -570,6 +570,22 @@ class CarnetApp {
         };
         reader.onerror = () => alert('Impossible de lire ce fichier.');
         reader.readAsText(file);
+    }
+
+    // ===== Faux plein écran =====
+    // L'API plein écran n'existe pas sur iPhone : on masque l'en-tête du carnet (titre, sauvegarde, réglages) pour que la page occupe tout l'écran.
+    // Les onglets de pages et l'en-tête de la zone (dont ce bouton, qui devient « Quitter ») restent visibles.
+    toggleFullscreen(force) {
+        const on = force === undefined ? !document.body.classList.contains('cn-fake-fs') : !!force;
+        document.body.classList.toggle('cn-fake-fs', on);
+        const btn = document.querySelector('[data-annot-fs]');
+        if (btn) {
+            const t = ANNOT_FS_TITLES[on ? 'exit' : 'enter'];
+            btn.innerHTML = ANNOT_FS_ICONS[on ? 'exit' : 'enter'];
+            btn.title = t; btn.setAttribute('aria-label', t); btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        }
+        this._closeMenu();
+        window.dispatchEvent(new Event('resize')); // les fenêtres flottantes (outils de dessin…) se replacent
     }
 
     // ===== Synchro entre appareils (dépôt GitHub privé, voir carnet-sync.js) =====
@@ -1650,24 +1666,31 @@ class CarnetApp {
     }
 
     // Place d'un nouveau bloc : celle qu'on a indiquée (double-clic), ramenée dans la zone, ou la première place libre en cascade.
-    _annotNewSpot(ed, at, w) {
+    // Place d'un nouveau bloc : celle demandée (double-clic), sinon une place VIERGE de la page, de préférence dans la partie visible (acEmptySpot) ; w × h : encombrement prévu du bloc.
+    _annotNewSpot(ed, at, w, h) {
         const cv = ed.__canvas;
-        const pos = at ? { x: at.x, y: at.y } : acFreeSpot(cv ? cv.blocks().map(b => cv.rectOf(b)) : []);
+        let pos;
+        if (at) pos = { x: at.x, y: at.y };
+        else {
+            const z = this.annotZoom[this._annotZoneKey(ed)] || 1;
+            const view = { x: ed.scrollLeft / z, y: ed.scrollTop / z, w: ed.clientWidth / z, h: ed.clientHeight / z };
+            pos = acEmptySpot(cv ? cv.blocks().map(b => cv.rectOf(b)) : [], { w, h: h || 60 }, { width: acCanvasWidth(ed), view });
+        }
         pos.x = Math.max(0, Math.min(pos.x, Math.max(0, acCanvasWidth(ed) - w - 12)));
         pos.y = Math.max(0, pos.y);
         return pos;
     }
 
-    // Bouton « Cadre » de la barre (ou double-clic sur le fond de la zone) : un cadre de texte vide à la place indiquée, ouvert en édition.
+    // Bouton « Texte » de la barre (ou double-clic sur le fond de la zone) : un cadre de texte vide à la place indiquée, ouvert en édition.
     annotInsertFrame(at, ed) {
         if (!ed) { if (!this._annotEnsureActive()) return; ed = this._annotActive; }
         if (!this._annotIsEditable(ed)) return;
         if (ed.querySelectorAll('.annot-frame').length >= NOTE_MAX_FRAMES) return;
         this._annotLeaveFrame(); // un seul cadre en édition à la fois
-        const w = 24; // un nouveau cadre a la taille d'un caractère (largeur automatique) : il s'allonge avec le texte
+        const w = 24; // un nouveau cadre a la taille d'un caractère (largeur automatique) : il s'allonge avec le texte (on lui réserve 220 × 60 pour qu'il ait de la place)
         const before = new Set(ed.querySelectorAll('.annot-frame'));
         const holder = document.createElement('div');
-        holder.innerHTML = noteFrameStubHtml({ w, auto: true }, this._annotNewSpot(ed, at && Number.isFinite(at.x) ? at : null, w), undefined, false);
+        holder.innerHTML = noteFrameStubHtml({ w, auto: true }, this._annotNewSpot(ed, at && Number.isFinite(at.x) ? at : null, 220, 60), undefined, false);
         ed.appendChild(holder.firstChild);
         this._annotHydrate(ed);
         const added = Array.from(ed.querySelectorAll('.annot-frame')).find(el => !before.has(el));
@@ -1701,7 +1724,7 @@ class CarnetApp {
         const holder = document.createElement('div');
         const st = drawDefault();
         st.bg = 't';   // fond transparent par défaut
-        holder.innerHTML = drawStubHtml(st, this._annotNewSpot(ed, null, st.w), true);
+        holder.innerHTML = drawStubHtml(st, this._annotNewSpot(ed, null, st.w + 2, st.h + 2), true);
         ed.appendChild(holder.firstChild);
         this._annotHydrate(ed);
         const added = Array.from(ed.querySelectorAll('.annot-draw')).find(el => !before.has(el));
@@ -1718,7 +1741,7 @@ class CarnetApp {
         this._annotLeaveFrame();
         const before = new Set(ed.querySelectorAll('.annot-chords'));
         const holder = document.createElement('div');
-        holder.innerHTML = chordsStubHtml(chordsDefault(this._annotNewBlockSettings(ed)), this._annotNewSpot(ed, null, 120), false);
+        holder.innerHTML = chordsStubHtml(chordsDefault(this._annotNewBlockSettings(ed)), this._annotNewSpot(ed, null, 300, 80), false);
         ed.appendChild(holder.firstChild);
         this._annotHydrate(ed);
         const added = Array.from(ed.querySelectorAll('.annot-chords')).find(el => !before.has(el));
@@ -1831,7 +1854,7 @@ class CarnetApp {
         this._annotLeaveFrame();
         const before = new Set(ed.querySelectorAll('.annot-staff'));
         const holder = document.createElement('div');
-        holder.innerHTML = noteStaffStubHtml(Object.assign(staffDefault(), this._annotNewBlockSettings(ed)), this._annotNewSpot(ed, null, 260), false);
+        holder.innerHTML = noteStaffStubHtml(Object.assign(staffDefault(), this._annotNewBlockSettings(ed)), this._annotNewSpot(ed, null, 390, 130), false);
         ed.appendChild(holder.firstChild);
         this._annotHydrate(ed);
         const added = Array.from(ed.querySelectorAll('.annot-staff')).find(el => !before.has(el));
@@ -1854,7 +1877,7 @@ class CarnetApp {
         ed.setAttribute('data-editable', on ? 'true' : 'false');
         ed.tabIndex = on ? 0 : -1;
         ed.setAttribute('aria-readonly', on ? 'false' : 'true');
-        ed.dataset.placeholder = on ? 'Double-cliquez pour ajouter un cadre de texte…' : 'Page vide — cliquez sur le crayon pour écrire';
+        ed.dataset.placeholder = on ? 'Double-cliquez pour ajouter un texte…' : 'Page vide — cliquez sur le crayon pour écrire';
         const zone = ed.closest('.jam-annot-zone');
         if (zone) {
             zone.classList.toggle('is-editing', on);

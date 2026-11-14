@@ -82,10 +82,10 @@ describe('HTML de la barre et des menus', () => {
             assert.ok(bar.includes(needle), needle);
         }
     });
-    test('plus de bouton « Coller portée » ; « Cadre » ajouté ; « Effacer la mise en forme » est un bouton à symbole (sans texte)', () => {
+    test('plus de bouton « Coller portée » ; « Texte » ajouté ; « Effacer la mise en forme » est un bouton à symbole (sans texte)', () => {
         assert.ok(!bar.includes('data-paste-staff'));
         assert.ok(!bar.includes('Coller portée'));
-        assert.ok(/data-insert-frame="1"[^>]*>[^<]*<svg[\s\S]*?<\/svg> Cadre<\/button>/.test(bar), 'bouton Cadre : icône puis libellé');
+        assert.ok(/data-insert-frame="1"[^>]*>[^<]*<svg[\s\S]*?<\/svg> Texte<\/button>/.test(bar), 'bouton Texte : icône puis libellé');
         const clear = /<button[^>]*data-clear="1"[^>]*>([\s\S]*?)<\/button>/.exec(bar);
         assert.ok(clear, 'bouton d\'effacement présent');
         assert.ok(clear[1].startsWith('<svg') && clear[1].endsWith('</svg>'), 'seulement un symbole');
@@ -129,7 +129,7 @@ describe('boutons de disposition des blocs : annotToolsHtml', () => {
         assert.equal((html.match(/onmousedown="event\.preventDefault\(\)"/g) || []).length, 4);
         assert.ok(html.includes("app.annotToolAct('magnet')"));
     });
-    test('le bouton « Cadre » de la barre ne parle plus du curseur', () => {
+    test('le bouton « Texte » de la barre ne parle plus du curseur', () => {
         assert.ok(!B.annotBarHtml().includes('à l\'endroit du curseur'));
     });
 });
@@ -149,5 +149,16 @@ describe('en-tête des zones : crayon du mode édition et zoom de lecture', () =
         ['out', 'reset', 'in'].forEach(a => { assert.ok(h.includes(`data-zoom-act="${a}"`), a); assert.ok(h.includes(`app.annotZoomAct('page', '${a}')`), a); });
         assert.equal((h.match(/<button/g) || []).length, 3);
         assert.equal((h.match(/onmousedown="event\.preventDefault\(\)"/g) || []).length, 3);
+    });
+});
+
+describe('plein écran : annotFullscreenHtml', () => {
+    test('un bouton icône (sans texte), qui appelle app.toggleFullscreen, avec son état', () => {
+        const off = B.annotFullscreenHtml(false), on = B.annotFullscreenHtml(true);
+        assert.match(off, /data-annot-fs aria-pressed="false" title="Plein écran"/);
+        assert.match(on, /data-annot-fs aria-pressed="true" title="Quitter le plein écran"/);
+        assert.ok(off.includes('app.toggleFullscreen()') && off.includes('onmousedown="event.preventDefault()"'));
+        assert.match(off, />\s*<svg[\s\S]*<\/svg><\/button>$/);
+        assert.notEqual(off.match(/<svg[\s\S]*<\/svg>/)[0], on.match(/<svg[\s\S]*<\/svg>/)[0]);
     });
 });

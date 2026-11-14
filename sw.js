@@ -13,7 +13,7 @@
 
 importScripts('app/audio/local-soundfonts.js'); // définit LOCAL_SOUNDFONT_FILES
 
-const SHELL_CACHE = 'carnet-shell-v8';
+const SHELL_CACHE = 'carnet-shell-v9';
 const SOUNDS_CACHE = 'carnet-sounds-v1';
 const SHELL_TIMEOUT_MS = 3000;
 
@@ -32,6 +32,7 @@ const SHELL_FILES = [
     'app/vendor/vexflow-petaluma.js',
     'app/audio/local-soundfonts.js',
     'app/offline.js',
+    'app/awake.js',
     'app/ui/staff-notes.js',
     'app/theory.js',
     'app/ui/chord-notes.js',

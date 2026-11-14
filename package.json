@@ -4,6 +4,6 @@
   "private": true,
   "description": "Carnet de notes musical : pages de texte et de portées, lecture au piano, hors ligne.",
   "scripts": {
-    "test": "node --test app/carnet/*.test.js app/ui/*.test.js app/audio/*.test.js app/theory.test.js"
+    "test": "node --test app/carnet/*.test.js app/ui/*.test.js app/audio/*.test.js app/theory.test.js app/awake.test.js"
   }
 }

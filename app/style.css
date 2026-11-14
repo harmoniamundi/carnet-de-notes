@@ -556,3 +556,9 @@ body { background: #121212; color: #f1f5f9; font: 14px/1.4 system-ui, -apple-sys
 .cn-draw-pop.is-collapsed > .jm-head { position: static; margin: 0; padding: 0; box-shadow: none; background: transparent; }
 .cn-draw-pop.jm-sheet.is-collapsed { padding-bottom: max(8px, env(safe-area-inset-bottom)); border-radius: 12px 12px 0 0; }
 @media (pointer: coarse) { .dr-head-btns .jm-btn { min-height: 36px; } }
+
+/* ===== Faux plein écran : l'en-tête du carnet est masqué, la page prend toute la place ===== */
+body.cn-fake-fs .cn-header { display: none; }
+body.cn-fake-fs .cn-tabs { padding-top: max(0px, env(safe-area-inset-top)); }
+.jam-annot-fs { margin-left: 4px; }
+.jam-annot-fs[aria-pressed="true"] { background: #2563eb; border-color: #93c5fd; color: #fff; }
