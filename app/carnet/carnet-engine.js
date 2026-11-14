@@ -224,9 +224,24 @@ class CarnetApp {
         return v;
     }
 
+    // Un réglage de l'en-tête (tempo, swing, instrument) s'applique aussitôt à tous les blocs, portées et accords, de toutes les pages
+    // (une seule étape d'annulation) ; chaque bloc peut ensuite être réglé à part. Seul le réglage modifié est écrit dans les blocs.
     setSetting(key, raw) {
         const next = sanitizeCarnetSettings(Object.assign({}, this.doc.settings, { [key]: key === 'instrument' ? raw : Number(raw) }));
-        if (JSON.stringify(next) !== JSON.stringify(this.doc.settings)) this.withUndo(() => { this.doc.settings = next; });
+        if (JSON.stringify(next) !== JSON.stringify(this.doc.settings)) {
+            this._flush(); // ce qui est en cours de saisie dans la page est enregistré d'abord
+            const cur = this.doc.pages[this.doc.current];
+            const before = cur ? cur.html : '';
+            this.withUndo(() => {
+                this.doc.settings = next;
+                this.doc.pages.forEach(p => { p.html = carnetApplyPlaySetting(p.html, key, next[key]); });
+            });
+            if (cur && cur.html !== before && this.zone) { // les blocs de la page affichée sont reconstruits avec leurs nouveaux réglages
+                const top = this.zone.scrollTop, left = this.zone.scrollLeft;
+                this._renderPage();
+                this.zone.scrollTop = top; this.zone.scrollLeft = left;
+            }
+        }
         this.renderHeader(); // une valeur refusée (tempo hors limites) revient à la valeur en vigueur
         const bpm = document.getElementById('cn-bpm'); if (bpm) bpm.value = String(this.doc.settings.bpm);
     }

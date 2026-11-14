@@ -138,3 +138,38 @@ describe('cadre de dessin : fond', () => {
         assert.match(F.sanitizeNoteHtml(mk('320,200,zzzzzz')), /data-draw="320,200"|^$/);
     });
 });
+
+describe('réglages de l\'en-tête appliqués aux blocs', () => {
+    const html = '<div class="annot-staff" data-staff="t,4/4,0,bpm90,sw67,inC;q:c4 q:d4 q:e4 q:f4" data-at="10,10"></div>'
+        + '<div class="annot-staff" data-staff="t,6/8,0,sw67;q:c4" data-at="10,200"></div>'
+        + '<div class="annot-chords" data-chords="b,bpm80,inEb|0~majTriad~4|7~7~2" data-at="300,10"></div>';
+    test('l\'instrument par défaut d\'un carnet neuf est Si♭', () => {
+        assert.equal(F.newCarnet().settings.instrument, 'Bb');
+        assert.equal(F.sanitizeCarnetSettings(null).instrument, 'Bb');
+    });
+    test('l\'instrument est réécrit dans les portées et les accords, le reste est gardé', () => {
+        const out = F.carnetApplyPlaySetting(html, 'instrument', 'Bb');
+        assert.match(out, /data-staff="[^"]*bpm90[^"]*sw67[^"]*inBb;/);
+        assert.match(out, /data-chords="b,bpm80,inBb\|/);
+        assert.equal((out.match(/inBb/g) || []).length, 3);
+        assert.equal(F.sanitizeNoteHtml(out), F.sanitizeNoteHtml(out)); // le résultat reste du HTML de carnet valide
+        assert.equal((F.sanitizeNoteHtml(out).match(/inBb/g) || []).length, 3);
+        assert.match(out, /data-at="300,10"/);
+    });
+    test('le tempo est réécrit partout', () => {
+        const out = F.carnetApplyPlaySetting(html, 'bpm', 120);
+        assert.equal((out.match(/bpm120/g) || []).length, 3);
+        assert.ok(!/bpm90|bpm80/.test(out));
+    });
+    test('le swing est réécrit, sauf dans une mesure composée', () => {
+        const out = F.carnetApplyPlaySetting(html, 'swing', 55);
+        assert.match(out, /data-staff="t,4\/4,0[^"]*sw55/);
+        assert.match(out, /data-staff="t,6\/8,0,sw67;/);
+        assert.match(out, /data-chords="b,bpm80,sw55,inEb\|/);
+    });
+    test('page vide, texte seul ou réglage inconnu : rien ne change', () => {
+        assert.equal(F.carnetApplyPlaySetting('', 'bpm', 100), '');
+        assert.equal(F.carnetApplyPlaySetting('<div>Do ré mi</div>', 'bpm', 100), '<div>Do ré mi</div>');
+        assert.equal(F.carnetApplyPlaySetting(html, 'volume', 3), html);
+    });
+});

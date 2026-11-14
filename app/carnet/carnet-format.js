@@ -8,10 +8,10 @@
 // Portées éditables et cadres de texte (ui/staff-notes.js) : un bloc n'est gardé que si son texte est valide.
 // Sous Node on les charge ; en navigateur ce sont des globaux.
 const GF_STAFF = (typeof parseStaff !== 'undefined')
-    ? { parseStaff, formatStaff, parseStaffPos, formatStaffPos, parseBlockAt, formatBlockAt, parseBlockBorder, parseFrameBox, formatFrameBox }
+    ? { parseStaff, formatStaff, staffMeterAllowsSwing, parseStaffPos, formatStaffPos, parseBlockAt, formatBlockAt, parseBlockBorder, parseFrameBox, formatFrameBox }
     : require('../ui/staff-notes.js');
 // Blocs d'accords jouables (ui/chord-notes.js) : même principe, le texte « data-chords » est relu et réécrit sous sa forme canonique.
-const GF_CHORDS = (typeof chordsCanon !== 'undefined') ? { chordsCanon } : require('../ui/chord-notes.js');
+const GF_CHORDS = (typeof chordsCanon !== 'undefined') ? { chordsCanon, chordsParse, chordsFormat } : require('../ui/chord-notes.js');
 // Cadres de dessin libre (ui/draw-notes.js) : « data-draw » est relu (traits compris) et réécrit sous sa forme canonique.
 const GF_DRAW = (typeof drawCanon !== 'undefined') ? { drawCanon } : require('../ui/draw-notes.js');
 
@@ -254,7 +254,8 @@ function carnetCleanText(v, max) {
     return v.replace(/[\u0000-\u001f\u007f<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
-function defaultCarnetSettings() { return { bpm: CARNET_BPM_DEFAULT, swing: CARNET_SWING_MIN, instrument: 'C' }; }
+// Instrument par défaut : en Si♭ (la hauteur écrite est jouée un ton plus bas).
+function defaultCarnetSettings() { return { bpm: CARNET_BPM_DEFAULT, swing: CARNET_SWING_MIN, instrument: 'Bb' }; }
 
 // Réglages de lecture : tempo (noires par minute), swing (%), instrument. Toute valeur absente ou hors limites revient à la valeur par défaut.
 function sanitizeCarnetSettings(raw) {
@@ -266,6 +267,29 @@ function sanitizeCarnetSettings(raw) {
         swing: Number.isFinite(swing) && swing >= CARNET_SWING_MIN && swing <= CARNET_SWING_MAX ? swing : d.swing,
         instrument: CARNET_INSTRUMENTS.includes(raw.instrument) ? raw.instrument : d.instrument
     };
+}
+
+// Un réglage de l'en-tête (tempo, swing ou instrument) s'applique à tous les blocs : cette fonction le réécrit dans le texte d'une page
+// (« data-staff » des portées, « data-chords » des blocs d'accords). key : 'bpm', 'swing' ou 'instrument' ; value : la valeur du carnet.
+// Une portée en mesure composée (6/8…) garde son swing : il n'y a pas de sens à le régler. Le reste de la page n'est pas touché.
+function carnetApplyPlaySetting(html, key, value) {
+    if (typeof html !== 'string' || !html) return '';
+    const field = key === 'instrument' ? 'instr' : key;
+    if (field !== 'bpm' && field !== 'swing' && field !== 'instr') return html;
+    const val = field === 'instr' ? String(value) : Math.round(Number(value));
+    return html.replace(/(<div\b[^>]*?\bdata-(staff|chords)=")([^"]*)(")/g, (all, pre, kind, raw, post) => {
+        const text = decodeNoteEntities(raw);
+        if (kind === 'staff') {
+            const st = GF_STAFF.parseStaff(text);
+            if (!st || (field === 'swing' && !GF_STAFF.staffMeterAllowsSwing(st.meter))) return all;
+            st[field] = val;
+            return pre + GF_STAFF.formatStaff(st) + post;
+        }
+        const st = GF_CHORDS.chordsParse(text);
+        if (!st) return all;
+        st[field] = val;
+        return pre + GF_CHORDS.chordsFormat(st) + post;
+    });
 }
 
 function carnetPageName(raw, index) {
@@ -359,6 +383,6 @@ if (typeof module !== 'undefined' && module.exports) {
     module.exports = { PAGE_NOTE_MAX, NOTE_MAX_STAVES, NOTE_MAX_FRAMES, NOTE_MAX_CHORDS, NOTE_MAX_DRAWS, NOTE_FONTS, sanitizeNoteHtml,
         CARNET_FORMAT, CARNET_VERSION, CARNET_MAX_PAGES, CARNET_TITLE_MAX, CARNET_PAGE_NAME_MAX, CARNET_BPM_MIN, CARNET_BPM_MAX, CARNET_BPM_DEFAULT,
         CARNET_SWING_MIN, CARNET_SWING_MAX, CARNET_INSTRUMENTS, CARNET_TRANSPOSE,
-        carnetCleanText, defaultCarnetSettings, sanitizeCarnetSettings, sanitizeCarnetPage, newCarnet, sanitizeCarnet, carnetToFile,
+        carnetCleanText, defaultCarnetSettings, sanitizeCarnetSettings, carnetApplyPlaySetting, sanitizeCarnetPage, newCarnet, sanitizeCarnet, carnetToFile,
         carnetSignature, carnetIsEmpty, nextPageName, carnetFileName, carnetFromChordScales };
 }

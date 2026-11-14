@@ -41,20 +41,20 @@
                 <button type="button" class="cn-btn" onclick="document.getElementById('cn-import-file').click()" title="Importer un fichier .json (carnet, ou grille exportée de Chord Scales)">Importer</button>
             </div>
         </div>
-        <div class="cn-row cn-play" role="group" aria-label="Réglages de lecture par défaut">
-            <span class="cn-play-label" title="Réglages de départ : ils servent au premier bloc d'une page vide et aux blocs écrits sans réglage propre. Chaque bloc (portée ou accords) a ensuite les siens ; un nouveau bloc reprend ceux du dernier bloc créé.">Par défaut</span>
-            <label class="cn-field" title="Tempo par défaut, en noires par minute (chaque bloc a le sien)">
+        <div class="cn-row cn-play" role="group" aria-label="Réglages de lecture de tous les blocs">
+            <span class="cn-play-label" title="Changer un de ces réglages l'applique aussitôt à tous les blocs (portées et accords) de toutes les pages. Chaque bloc peut ensuite avoir les siens ; un nouveau bloc reprend ceux du dernier bloc créé.">Tous les blocs</span>
+            <label class="cn-field" title="Tempo de tous les blocs, en noires par minute (un bloc peut ensuite avoir le sien)">
                 <span>♩ =</span>
                 <input id="cn-bpm" type="number" min="30" max="300" step="1" inputmode="numeric" aria-label="Tempo, en noires par minute" value="100">
             </label>
-            <label class="cn-field" title="Swing par défaut : 50 % = croches droites, 67 % = triolet (chaque bloc a le sien)">
+            <label class="cn-field" title="Swing de tous les blocs : 50 % = croches droites, 67 % = triolet (un bloc peut ensuite avoir le sien)">
                 <span>Swing</span>
                 <select id="cn-swing" aria-label="Swing de lecture">
                     <option value="50">Droit · 50 %</option><option value="55">55 %</option><option value="60">60 %</option><option value="65">65 %</option>
                     <option value="67">Triolet · 67 %</option><option value="70">70 %</option><option value="75">75 %</option>
                 </select>
             </label>
-            <label class="cn-field" title="Instrument transpositeur par défaut : la hauteur écrite est transposée à la lecture (chaque bloc a le sien)">
+            <label class="cn-field" title="Instrument transpositeur de tous les blocs : la hauteur écrite est transposée à la lecture (un bloc peut ensuite avoir le sien)">
                 <span>Instrument</span>
                 <select id="cn-instr" aria-label="Instrument transpositeur">
                     <option value="C">En Ut</option><option value="Bb">En Si♭</option><option value="Eb">En Mi♭</option>
