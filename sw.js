@@ -38,6 +38,7 @@ const SHELL_FILES = [
     'app/ui/chord-notes.js',
     'app/ui/draw-notes.js',
     'app/carnet/carnet-format.js',
+    'app/carnet/carnet-sheets.js',
     'app/ui/staff-editor.js',
     'app/ui/text-frame.js',
     'app/ui/annot-canvas.js',

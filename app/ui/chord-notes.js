@@ -219,7 +219,7 @@ function chordsStubHtml(st, at, border) {
 }
 
 // Un bloc copié s'écrit « [accords@x,y!:b|0~maj7~4] » (place et « ! » facultatifs, comme « [portée…] »).
-const CH_CLIP_RE = /\[accords(?:@(\d{1,4}),(\d{1,4}))?(!)?:([^\]\n]{1,2000})\]/g;
+const CH_CLIP_RE = /\[accords(?:@(\d{1,5}),(\d{1,5}))?(!)?:([^\]\n]{1,2000})\]/g;
 
 function chordsClipText(st, meta) {
     const at = meta && meta.at ? CH_N.formatBlockAt(meta.at) : '';

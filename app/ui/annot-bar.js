@@ -168,7 +168,7 @@ function annotFullscreenHtml(on) {
 function annotZoomHtml(which) {
     const b = (act, label, title) => `<button type="button" class="ab-btn at-btn jam-annot-zbtn" data-zoom-act="${act}" title="${title}" aria-label="${title}"
         onmousedown="event.preventDefault()" onclick="app.annotZoomAct('${which}', '${act}')">${label}</button>`;
-    return `<span class="jam-annot-zoom" role="group" aria-label="Zoom de lecture">${b('out', '−', 'Dézoomer')}${b('reset', '100 %', 'Zoom à 100 %')}${b('in', '+', 'Zoomer')}</span>`;
+    return `<span class="jam-annot-zoom" role="group" aria-label="Zoom de lecture">${b('out', '−', 'Dézoomer')}${b('reset', '100 %', 'Zoom à 100 % : la feuille remplit la largeur de la zone')}${b('in', '+', 'Zoomer')}</span>`;
 }
 
 // Contenu des menus flottants. state : { size } pour le menu de taille.

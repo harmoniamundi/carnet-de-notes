@@ -29,7 +29,7 @@ class CarnetApp {
         this.annotZoom = { page: 1 };           // zoom de lecture, gardé d'une visite à l'autre
         try {
             const z = JSON.parse(cnStore(CN_KEYS.zoom) || '{}');
-            if (z && Number.isFinite(z.page)) this.annotZoom.page = acClampZoom(z.page);
+            if (z && Number.isFinite(z.page)) this.annotZoom.page = sheetClampZoom(z.page); // zoom relatif à la largeur de la feuille (100 % = la feuille remplit la zone)
         } catch (e) {}
         this._saved = null;                     // cache des carnets sauvegardés (voir getSaved)
         this.sync = new CarnetSync({            // synchro entre appareils (dépôt GitHub privé) : voir « Synchro » plus bas
@@ -67,7 +67,7 @@ class CarnetApp {
                     oncopy="app.annotCopy(event)" oncut="app.annotCopy(event, true)" ondrop="event.preventDefault()"`;
         stage.innerHTML = `${annotBarHtml()}
             <div class="jam-annot-zone">
-                <div class="jam-annot-head"><span class="jam-annot-title" id="cn-page-title"></span>${annotModeHtml('page')}${annotZoomHtml('page')}${annotToolsHtml()}${annotFullscreenHtml(false)}</div>
+                <div class="jam-annot-head"><span class="jam-annot-title" id="cn-page-title"></span><span class="cn-sheet-warn" id="cn-sheet-warn" role="status" hidden></span>${annotModeHtml('page')}${annotZoomHtml('page')}${annotToolsHtml()}${annotFullscreenHtml(false)}</div>
                 <div id="cn-page" class="jam-annot-text" data-editable="false" data-can-edit="true" role="group" spellcheck="false"
                     aria-label="Page du carnet" data-placeholder="" ${handlers}></div>
             </div>`;
@@ -215,7 +215,27 @@ class CarnetApp {
         const t = $('cn-title');
         if (document.activeElement !== t) t.value = this.doc.title;
         document.title = this.doc.title ? `${this.doc.title} — Carnet de notes` : 'Carnet de notes';
+        const paper = $('cn-paper'), orient = $('cn-orient'), st = this.doc.settings;
+        if (paper) paper.value = sheetPaper(st.paper);
+        if (orient) {
+            const land = sheetOrient(st.orient) === 'landscape';
+            orient.textContent = land ? '▭' : '▯';
+            orient.title = land ? 'Feuille en paysage — cliquer pour passer en portrait' : 'Feuille en portrait — cliquer pour passer en paysage';
+            orient.setAttribute('aria-label', orient.title);
+        }
     }
+
+    // Format de la feuille (papier, sens) : un seul pour tout le carnet, annulable. Les portées se remettent en page à la largeur de la nouvelle feuille.
+    setSheetFormat(paper, orient) {
+        this._flush();
+        const st = this.doc.settings, p = sheetPaper(paper == null ? st.paper : paper), o = sheetOrient(orient == null ? st.orient : orient);
+        if (p === sheetPaper(st.paper) && o === sheetOrient(st.orient)) { this.renderHeader(); return; }
+        this.withUndo(() => { st.paper = p; st.orient = o; });
+        this.renderHeader();
+        this._renderPage();
+    }
+
+    toggleSheetOrient() { this.setSheetFormat(null, sheetOrient(this.doc.settings.orient) === 'portrait' ? 'landscape' : 'portrait'); }
 
     // Titre du carnet. Si le carnet est une sauvegarde, la sauvegarde est renommée avec lui.
     commitTitle(raw) {
@@ -883,24 +903,107 @@ class CarnetApp {
         }
     }
 
-    // Zoom d'une zone : chaque bloc est agrandi autour du coin haut gauche de la zone (transformation CSS lue dans style.css : --z, et --bx / --by
-    // posés par le bloc). Les places enregistrées (data-at) restent celles du canevas à 100 %, et le canevas convertit les positions de l'écran :
-    // on édite donc aussi bien zoomé.
+    // Taille de la feuille du carnet (pixels du canevas), ou null quand la page n'est pas en « mode page » (téléphone : la zone reste un canevas continu).
+    _annotSheetSize() {
+        if (typeof sheetSize !== 'function' || (typeof acIsPhone === 'function' && acIsPhone())) return null;
+        const st = this.doc.settings || {};
+        return sheetSize(st.paper, st.orient);
+    }
+
+    // Zoom de l'utilisateur sur la zone : relatif à la largeur de la feuille en mode page (100 % = la feuille remplit la largeur de la zone), absolu sinon.
+    _annotUserZoom(ed) {
+        return ed && ed.__sheet ? ed.__sheet.u : this.annotZoom[this._annotZoneKey(ed)];
+    }
+
+    // Zoom d'une zone : chaque bloc est agrandi autour du coin haut gauche de la zone (transformation CSS lue dans style.css : --z, --ox et --bx / --by posés
+    // par le bloc). Les places enregistrées (data-at) restent celles du canevas à 100 %, et le canevas convertit les positions de l'écran : on édite donc aussi
+    // bien zoomé. En mode page, l'échelle est celle qui amène la largeur de la feuille à la largeur de la zone, multipliée par le zoom ; le zoom minimal montre la
+    // hauteur d'une feuille entière ; quand la feuille est plus étroite que la zone, elle est centrée (--ox).
     _annotApplyZoom(ed) {
         if (!ed) return;
-        const z = this.annotZoom[this._annotZoneKey(ed)];
+        const key = this._annotZoneKey(ed);
+        const size = key === 'page' ? this._annotSheetSize() : null;
+        if (size) {
+            const cw = ed.clientWidth, ch = ed.clientHeight;
+            if (!cw) return; // zone cachée : impossible de mesurer, on attend qu'elle s'affiche (observateur de taille)
+            const fit = sheetFitScale(cw, size), umin = sheetMinZoom(cw, ch, size);
+            const u = sheetClampZoom(this.annotZoom[key], umin), sc = fit * u, ox = sheetOffsetX(cw, size, sc);
+            ed.__sheet = { size, margin: SHEET_MARGIN, bottom: sheetsBottom(size), fit, umin, u };
+            ed.__zoom = sc; ed.__ox = ox;
+            ed.style.setProperty('--z', String(sc));
+            ed.style.setProperty('--ox', `${ox}px`);
+            ed.classList.add('is-zoomed', 'is-paged');
+            this._annotSheetLayout(ed);
+            this._annotRefreshZoomUi(key);
+            return;
+        }
+        if (ed.__sheet) this._annotSheetOff(ed);
+        const z = acClampZoom(this.annotZoom[key]);
         ed.__zoom = z;
         ed.style.setProperty('--z', String(z));
         ed.classList.toggle('is-zoomed', z !== 1);
     }
 
+    // La zone quitte le mode page (la fenêtre devient celle d'un téléphone) : on rend le fond et les repères.
+    _annotSheetOff(ed) {
+        ed.__sheet = null; ed.__ox = 0;
+        ed.classList.remove('is-paged');
+        ['--ox', '--sheets-h', '--sheets-w'].forEach(k => ed.style.removeProperty(k));
+        ['backgroundImage', 'backgroundSize', 'backgroundPosition', 'backgroundRepeat', 'backgroundAttachment'].forEach(k => { ed.style[k] = ''; });
+        ed.querySelectorAll('.is-straddle, .is-offside').forEach(b => b.classList.remove('is-straddle', 'is-offside'));
+        const w = document.getElementById('cn-sheet-warn');
+        if (w) w.hidden = true;
+    }
+
+    // Dessine les feuilles (fond de la zone), marque les blocs qui dépassent d'une feuille (cadre rouge ; grisés s'ils sont hors de la feuille, à droite)
+    // et colore en rouge la ligne de coupure qu'un bloc chevauche. À refaire après chaque changement de zoom, de format, de bloc.
+    _annotSheetLayout(ed) {
+        const sh = ed && ed.__sheet;
+        if (!sh) return;
+        const cv = ed.__canvas, els = cv ? cv.blocks() : [], rects = els.map(b => cv.rectOf(b));
+        let bad = 0;
+        els.forEach((b, i) => {
+            const out = sheetOffside(rects[i], sh.size), cut = !out && !sheetFits(rects[i], sh.size);
+            b.classList.toggle('is-offside', out);
+            b.classList.toggle('is-straddle', cut);
+            if (out || cut) bad++;
+        });
+        const bg = sheetBackground(sh.size, ed.__zoom, ed.__ox, sheetCount(rects, sh.size), sheetBrokenGaps(rects, sh.size));
+        ed.style.backgroundImage = bg.image; ed.style.backgroundSize = bg.size; ed.style.backgroundPosition = bg.position;
+        ed.style.backgroundRepeat = bg.repeat; ed.style.backgroundAttachment = bg.attachment;
+        ed.style.setProperty('--sheets-h', `${bg.height + 24}px`);
+        ed.style.setProperty('--sheets-w', `${bg.width}px`);
+        const warn = document.getElementById('cn-sheet-warn');
+        if (warn) {
+            warn.hidden = !bad;
+            warn.textContent = bad ? `⚠ ${bad} bloc${bad > 1 ? 's' : ''} à corriger` : '';
+            warn.title = 'Les blocs cerclés de rouge sont à cheval sur deux feuilles ; les blocs grisés dépassent du bord droit de la feuille. Déplacez-les : à l\'impression, ils seraient coupés.';
+        }
+    }
+
+    // Pose les blocs `els` sur une feuille (au plus près de l'endroit où ils sont) : après un collage ou une insertion.
+    _annotFitBlocks(ed, els) {
+        const cv = ed && ed.__canvas;
+        if (!cv || !ed.__sheet) return;
+        cv.fitOnSheets(els.map(el => ({ el, view: cv.viewOf(el) })).filter(i => i.view));
+    }
+
+    // Partie du canevas visible dans la zone (pixels du canevas) : où coller et où poser les nouveaux blocs.
+    _annotView(ed) {
+        const z = acZoomOf(ed);
+        return { x: Math.max(0, (ed.scrollLeft - acOffsetX(ed)) / z), y: ed.scrollTop / z, w: ed.clientWidth / z, h: ed.clientHeight / z };
+    }
+
+    // Largeur du canevas (pixels à 100 %) : celle de la feuille en mode page, de la zone sinon.
+    _annotCanvasW(ed) { return ed.__sheet ? ed.__sheet.size.w : ed.clientWidth; }
+
     _annotRefreshZoomUi(which) {
-        const zone = this._annotZoneEl(which) && this._annotZoneEl(which).closest('.jam-annot-zone');
+        const ed = this._annotZoneEl(which), zone = ed && ed.closest('.jam-annot-zone');
         if (!zone) return;
-        const z = this.annotZoom[which];
+        const sh = ed.__sheet, z = sh ? sh.u : this.annotZoom[which], min = sh ? sh.umin : AC_ZOOM_MIN;
         const reset = zone.querySelector('[data-zoom-act="reset"]'), out = zone.querySelector('[data-zoom-act="out"]'), inn = zone.querySelector('[data-zoom-act="in"]');
-        if (reset) { reset.textContent = `${Math.round(z * 100)} %`; reset.classList.toggle('is-on', z !== 1); }
-        if (out) out.disabled = z <= AC_ZOOM_MIN;
+        if (reset) { reset.textContent = `${Math.round(z * 100)} %`; reset.classList.toggle('is-on', Math.abs(z - 1) > 0.004); }
+        if (out) out.disabled = z <= min + 0.004;
         if (inn) inn.disabled = z >= AC_ZOOM_MAX;
     }
 
@@ -908,11 +1011,24 @@ class CarnetApp {
     _annotSetZoom(which, z1, anchor) {
         const ed = this._annotZoneEl(which);
         if (!ed) return;
+        const r = ed.getBoundingClientRect();
+        const px = (anchor ? anchor.x - r.left : r.width / 2) - ed.clientLeft, py = (anchor ? anchor.y - r.top : r.height / 2) - ed.clientTop;
+        const sh = ed.__sheet;
+        if (sh) {
+            const u1 = sheetClampZoom(z1, sh.umin);
+            if (u1 === sh.u) return;
+            const s0 = ed.__zoom, ox0 = ed.__ox;
+            const lx = (ed.scrollLeft + px - ox0) / s0, ly = (ed.scrollTop + py) / s0; // le point du canevas sous l'ancre
+            this.annotZoom[which] = u1;
+            try { localStorage.setItem(CN_KEYS.zoom, JSON.stringify(this.annotZoom)); } catch (e) {}
+            this._annotApplyZoom(ed);
+            ed.scrollLeft = Math.max(0, lx * ed.__zoom + ed.__ox - px);
+            ed.scrollTop = Math.max(0, ly * ed.__zoom - py);
+            return;
+        }
         const z0 = this.annotZoom[which];
         z1 = acClampZoom(z1);
         if (z1 === z0) return;
-        const r = ed.getBoundingClientRect();
-        const px = (anchor ? anchor.x - r.left : r.width / 2) - ed.clientLeft, py = (anchor ? anchor.y - r.top : r.height / 2) - ed.clientTop;
         this.annotZoom[which] = z1;
         try { localStorage.setItem(CN_KEYS.zoom, JSON.stringify(this.annotZoom)); } catch (e) {}
         this._annotApplyZoom(ed);
@@ -922,27 +1038,38 @@ class CarnetApp {
     }
 
     annotZoomAct(which, act) {
-        const z = this.annotZoom[which];
-        this._annotSetZoom(which, act === 'reset' ? 1 : acZoomStep(z, act === 'in' ? 1 : -1), null);
+        const ed = this._annotZoneEl(which), sh = ed && ed.__sheet, z = this._annotUserZoom(ed);
+        if (act === 'reset') return this._annotSetZoom(which, 1, null);
+        const dir = act === 'in' ? 1 : -1;
+        this._annotSetZoom(which, sh ? sheetZoomStep(z, dir, sh.umin) : acZoomStep(z, dir), null);
     }
 
     // Gestes de zoom d'une zone (en lecture comme en édition) : Ctrl / ⌘ + molette (et pincement du pavé tactile), pincement de Safari, pincement à deux doigts.
     _annotBindZoom(ed) {
         if (ed.__zoomBound) return;
         ed.__zoomBound = true;
+        if (typeof ResizeObserver !== 'undefined') { // la fenêtre (ou la zone) change de taille : l'échelle qui ajuste la feuille à la largeur de la zone est recalculée
+            let w0 = ed.clientWidth, h0 = ed.clientHeight;
+            new ResizeObserver(() => {
+                const w = ed.clientWidth, h = ed.clientHeight;
+                if (w === w0 && h === h0) return;
+                w0 = w; h0 = h;
+                this._annotApplyZoom(ed);
+            }).observe(ed);
+        }
         const which = () => this._annotZoneKey(ed), locked = () => true;
         ed.addEventListener('wheel', (ev) => {
             if (!(ev.ctrlKey || ev.metaKey) || !locked()) return;
             ev.preventDefault();
-            this._annotSetZoom(which(), acZoomWheel(this.annotZoom[which()], ev.deltaY, ev.deltaMode), { x: ev.clientX, y: ev.clientY });
+            this._annotSetZoom(which(), acZoomWheel(this._annotUserZoom(ed), ev.deltaY, ev.deltaMode, ed.__sheet ? ed.__sheet.umin : AC_ZOOM_MIN), { x: ev.clientX, y: ev.clientY });
         }, { passive: false });
         let z0 = 1;
-        ed.addEventListener('gesturestart', (ev) => { if (!locked()) return; ev.preventDefault(); z0 = this.annotZoom[which()]; });
+        ed.addEventListener('gesturestart', (ev) => { if (!locked()) return; ev.preventDefault(); z0 = this._annotUserZoom(ed); });
         ed.addEventListener('gesturechange', (ev) => { if (!locked()) return; ev.preventDefault(); this._annotSetZoom(which(), z0 * ev.scale, { x: ev.clientX, y: ev.clientY }); });
         if ('ongesturestart' in window) return; // Safari : les gestes ci-dessus suffisent
         let d0 = 0;
         const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
-        ed.addEventListener('touchstart', (ev) => { d0 = locked() && ev.touches.length === 2 ? dist(ev.touches) || 0 : 0; z0 = this.annotZoom[which()]; }, { passive: true });
+        ed.addEventListener('touchstart', (ev) => { d0 = locked() && ev.touches.length === 2 ? dist(ev.touches) || 0 : 0; z0 = this._annotUserZoom(ed); }, { passive: true });
         ed.addEventListener('touchmove', (ev) => {
             if (!d0 || ev.touches.length !== 2 || !locked()) return;
             ev.preventDefault();
@@ -964,6 +1091,7 @@ class CarnetApp {
         this.commitPageNote(html);
         if (!html && ed.innerHTML !== '') ed.innerHTML = ''; // champ vraiment vide : le texte d'aide réapparaît
         ed.__html = html;
+        this._annotSheetLayout(ed); // les blocs ont pu bouger ou grandir : feuilles et cadres rouges à jour
     }
 
     // Les tailles de la barre sont posées par le navigateur sous une taille « provisoire » (xxx-large) :
@@ -994,6 +1122,7 @@ class CarnetApp {
                 this._annotRefreshState();
             },
             onBackground: () => { this._annotQuiet = false; this.annotActivate(ed); this._annotRefreshState(); }, // un clic sur le fond choisit la zone et fait venir la barre (portée, cadre, mise en forme)
+            fit: (rects) => (ed.__sheet ? sheetFitGroup(rects, ed.__sheet.size) : null),                             // mode page : un bloc lâché est poussé sur une feuille
             onCreateAt: (cv, x, y) => this.annotInsertFrame({ x, y }, ed),                                           // un double-clic sur le fond crée un cadre de texte
             onGrab: () => { if (this._annotStaffTimer) this._annotCommit(ed); },                                     // changements en attente enregistrés avant le déplacement
             // Un déplacement à la souris est enregistré tout de suite ; une série de flèches (série = true) en une seule entrée : ↶ ou ⌘Z l'annule
@@ -1193,8 +1322,7 @@ class CarnetApp {
             rects.push({ x: at.x, y: at.y, w: w || 40, h: 24 });
             return true;
         };
-        const zoom = this.annotZoom[this._annotZoneKey(ed)] || 1;
-        const off = acPasteOffset(parts.filter(p => p.at).map(p => p.at), { x: ed.scrollLeft / zoom, y: ed.scrollTop / zoom, w: ed.clientWidth / zoom, h: ed.clientHeight / zoom }, run);
+        const off = acPasteOffset(parts.filter(p => p.at).map(p => p.at), this._annotView(ed), run);
         const shift = (at) => ({ x: Math.max(0, Math.min(SN_AT_MAX, at.x + off.dx)), y: Math.max(0, Math.min(SN_AT_MAX, at.y + off.dy)) });
         const full = [];  // limites atteintes (un message le dit, au lieu d'ignorer le bloc sans rien dire)
         const noRoom = (label) => { if (!full.includes(label)) full.push(label); };
@@ -1221,7 +1349,7 @@ class CarnetApp {
                 const txt = p.text.replace(/ /g, ' ').replace(/^\s+|\s+$/g, '');
                 if (!txt) continue;
                 if (roomFrames <= 0) { noRoom(`${NOTE_MAX_FRAMES} cadres de texte`); continue; }
-                const w = Math.max(SN_FRAME_W_MIN, Math.min(SN_FRAME_W_DEFAULT, Math.floor(ed.clientWidth - 48)));
+                const w = Math.max(SN_FRAME_W_MIN, Math.min(SN_FRAME_W_DEFAULT, Math.floor(this._annotCanvasW(ed) - 48)));
                 const at = acFreeSpot(rects);
                 const esc = txt.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                 if (add(sanitizeNoteHtml(noteFrameStubHtml({ w }, at, esc, false), max), at, w)) roomFrames--;
@@ -1231,6 +1359,7 @@ class CarnetApp {
         if (full.length) this._annotNote(`${made.length ? 'Collage incomplet' : 'Rien n\'a été collé'} : une page contient au plus ${full.join(', ')}.`, true);
         if (!made.length) return;
         this._annotHydrate(ed);
+        this._annotFitBlocks(ed, made.filter(m => m.isConnected)); // mode page : le collage est posé sur une feuille
         this._annotMoveUndo = true; this._annotMoveRedo = false;
         this._annotCommit(ed);
         cv.select(made.filter(m => m.isConnected), 'set', false);
@@ -1717,12 +1846,11 @@ class CarnetApp {
         let pos;
         if (at) pos = { x: at.x, y: at.y };
         else {
-            const z = this.annotZoom[this._annotZoneKey(ed)] || 1;
-            const view = { x: ed.scrollLeft / z, y: ed.scrollTop / z, w: ed.clientWidth / z, h: ed.clientHeight / z };
-            pos = acEmptySpot(cv ? cv.blocks().map(b => cv.rectOf(b)) : [], { w, h: h || 60 }, { width: acCanvasWidth(ed), view });
+            pos = acEmptySpot(cv ? cv.blocks().map(b => cv.rectOf(b)) : [], { w, h: h || 60 }, { width: acCanvasWidth(ed), view: this._annotView(ed) });
         }
         pos.x = Math.max(0, Math.min(pos.x, Math.max(0, acCanvasWidth(ed) - w - AC_GUTTER)));
         pos.y = Math.max(0, pos.y);
+        if (ed.__sheet) pos = sheetFitGroup([{ x: pos.x, y: pos.y, w, h: h || 60 }], ed.__sheet.size)[0]; // mode page : sur une feuille, pas à cheval
         return pos;
     }
 
@@ -1864,7 +1992,7 @@ class CarnetApp {
             if (run.some(n => /\S/.test(String(n.textContent || '').replace(/ /g, ' ')))) {
                 const f = document.createElement('div');
                 f.className = 'annot-frame';
-                f.setAttribute('data-frame', String(Math.max(SN_FRAME_W_MIN, Math.min(SN_FRAME_W_MAX, ed.clientWidth - 24))));
+                f.setAttribute('data-frame', String(Math.max(SN_FRAME_W_MIN, Math.min(SN_FRAME_W_MAX, this._annotCanvasW(ed) - 24))));
                 f.setAttribute('data-border', '0');
                 ed.insertBefore(f, run[0]);
                 run.forEach(n => f.appendChild(n));

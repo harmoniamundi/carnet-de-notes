@@ -13,6 +13,7 @@ const AC_SNAP = 6;            // distance (pixels) à laquelle un repère appara
 const AC_DRAG_MIN = 5;        // déplacement minimal (pixels) avant qu'un appui devienne un glisser
 const AC_MARGIN = 12;         // marge de la première place libre
 const AC_GUTTER = 36;         // marge de droite réservée aux boutons posés À DROITE d'un bloc (crayon ✎, ▶, chevron d'arpège) : un bloc ne les cache pas sous le bord
+const AC_RIGHT_MAX = 3000;    // bord droit extrême d'un groupe de blocs sur le canevas, en pixels à 100 % (sans feuilles ; avec des feuilles, c'est le bord de la feuille)
 const AC_GAP = 10;            // espace laissé entre un nouveau bloc et ses voisins (acEmptySpot)
 const AC_CASCADE = 22;        // décalage entre deux blocs créés l'un après l'autre
 const AC_BLOCKS = '.annot-staff, .annot-frame, .annot-chords, .annot-draw';
@@ -42,14 +43,17 @@ function acNormRect(x0, y0, x1, y1) {
     return { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
 }
 
-// Déplacement (dx, dy) ramené pour que le groupe `b` ne sorte pas par le haut ni par la gauche, ni par la droite quand il tient dans la zone (largeur zoneW),
-// en laissant à droite la marge AC_GUTTER où se posent les boutons du bloc (crayon, ▶, chevron).
-function acClampMove(b, dx, dy, zoneW) {
+// Déplacement (dx, dy) ramené pour que le groupe `b` ne sorte pas par le haut ni par la gauche. À droite, plus de mur à la largeur de la zone : un bloc peut être
+// tiré au-delà du bord visible (la zone défile, et défile toute seule pendant le glisser) ; seule la limite des places du canevas (AC_RIGHT_MAX) le retient.
+// Avec des feuilles (limits = { right, bottom }, voir zoneLimits), le mur à droite est le bord de la feuille et il y a un bas : un bloc déjà au-delà
+// du bord (carnet ouvert d'avant les feuilles) ne peut plus que revenir vers la gauche.
+function acClampMove(b, dx, dy, limits) {
     let x = dx, y = dy;
+    const right = limits && limits.right > 0 ? limits.right : AC_RIGHT_MAX, bottom = limits && limits.bottom > 0 ? limits.bottom : Infinity;
+    if (x > 0 && b.x + b.w + x > right) x = Math.max(0, right - b.w - b.x);
+    if (y > 0 && b.y + b.h + y > bottom) y = Math.max(0, bottom - b.h - b.y);
     if (b.x + x < 0) x = -b.x;
     if (b.y + y < 0) y = -b.y;
-    const lim = zoneW - AC_GUTTER;
-    if (zoneW > 0 && b.w <= lim && b.x + b.w + x > lim) x = lim - b.w - b.x;
     return { dx: Math.round(x), dy: Math.round(y) };
 }
 
@@ -143,10 +147,10 @@ function acEmptySpot(rects, size, opts) {
 // ----- Zoom de lecture (zone verrouillée) : chaque bloc est agrandi autour du coin haut gauche de la zone -----
 
 // Zoom ramené dans les bornes (valeur invalide : 100 %), arrondi au centième.
-function acClampZoom(z) {
+function acClampZoom(z, min = AC_ZOOM_MIN) {
     const v = Number(z);
     if (!isFinite(v) || v <= 0) return 1;
-    return Math.round(Math.min(AC_ZOOM_MAX, Math.max(AC_ZOOM_MIN, v)) * 100) / 100;
+    return Math.round(Math.min(AC_ZOOM_MAX, Math.max(min, v)) * 100) / 100;
 }
 
 // Cran suivant (dir > 0) ou précédent (dir < 0) à partir d'un zoom quelconque.
@@ -158,9 +162,9 @@ function acZoomStep(z, dir) {
 }
 
 // Zoom après un cran de molette (Ctrl / ⌘ + molette, ou pincement du pavé tactile) : exponentiel, avec un cran maximal par événement.
-function acZoomWheel(z, deltaY, deltaMode = 0) {
+function acZoomWheel(z, deltaY, deltaMode = 0, min = AC_ZOOM_MIN) {
     const d = Math.max(-30, Math.min(30, Number(deltaY) * (deltaMode === 1 ? 12 : 1) || 0));
-    return acClampZoom(acClampZoom(z) * Math.exp(-d * 0.01));
+    return acClampZoom(acClampZoom(z, min) * Math.exp(-d * 0.01), min);
 }
 
 // Décalage CSS (translate) d'un bloc posé en (x, y) pour que scale(z) autour du coin de la zone le mette en (x·z, y·z).
@@ -178,7 +182,14 @@ function acZoomOf(zone) {
 // Largeur du canevas, en pixels à 100 % : celle de la zone, et davantage quand on dézoome (la zone montre alors clientWidth / zoom pixels du canevas :
 // on doit pouvoir poser et déplacer des blocs sur toute la partie visible, jusqu'au bord droit).
 function acCanvasWidth(zone) {
+    if (zone.__sheet) return zone.__sheet.size.w; // en mode page, le canevas a la largeur d'une feuille, quelle que soit la zone
     return zone.clientWidth / Math.min(1, acZoomOf(zone));
+}
+
+// Décalage (pixels de l'écran) qui centre la feuille dans la zone quand elle est plus étroite que la zone ; 0 hors mode page.
+function acOffsetX(zone) {
+    const o = zone && Number(zone.__ox);
+    return o > 0 ? o : 0;
 }
 
 // Défilement à donner à un axe après un changement de zoom z0 → z1, pour que le point sous le pointeur (à p pixels du bord visible) ne bouge pas.
@@ -244,7 +255,13 @@ class AnnotCanvas {
     // Place d'un point de l'écran sur le canevas (à 100 %, quel que soit le zoom de la zone).
     pointOf(clientX, clientY, zone = this.zone) {
         const r = zone.getBoundingClientRect(), z = acZoomOf(zone);
-        return { x: Math.round((clientX - r.left - zone.clientLeft + zone.scrollLeft) / z), y: Math.round((clientY - r.top - zone.clientTop + zone.scrollTop) / z) };
+        return { x: Math.round((clientX - r.left - zone.clientLeft + zone.scrollLeft - acOffsetX(zone)) / z), y: Math.round((clientY - r.top - zone.clientTop + zone.scrollTop) / z) };
+    }
+
+    // Murs de la zone (pixels du canevas) : bord droit de la feuille et bas de la dernière feuille ; sans feuilles, seule la limite des places.
+    zoneLimits() {
+        const sh = this.zone.__sheet;
+        return sh ? { right: sh.size.w, bottom: sh.bottom } : { right: AC_RIGHT_MAX };
     }
 
     zoneSize() { return { w: acCanvasWidth(this.zone), h: Math.max(this.zone.clientHeight, this.zone.scrollHeight / this.zoom) }; }
@@ -403,13 +420,13 @@ class AnnotCanvas {
                 clearGhosts();
                 items.forEach(i => i.el.classList.remove('is-dragging-src'));
                 const zm = this.zoom, rawDx = ((lastX - x0) + (this.zone.scrollLeft - sl0)) / zm, rawDy = ((lastY - y0) + (this.zone.scrollTop - st0)) / zm;
-                const c = acClampMove(bbox, rawDx, rawDy, acCanvasWidth(this.zone));
+                const lim = this.zoneLimits(), c = acClampMove(bbox, rawDx, rawDy, lim);
                 let dx = c.dx, dy = c.dy;
                 const moved = { x: bbox.x + dx, y: bbox.y + dy, w: bbox.w, h: bbox.h };
                 const s = acSnap(moved, others, this.zoneSize(), AC_SNAP, !!(this.opts.magnet && this.opts.magnet()) && !alt);
                 if (!alt) {
                     dx += s.dx; dy += s.dy;
-                    const c2 = acClampMove(bbox, dx, dy, acCanvasWidth(this.zone)); dx = c2.dx; dy = c2.dy;
+                    const c2 = acClampMove(bbox, dx, dy, lim); dx = c2.dx; dy = c2.dy;
                     this.showGuides(s.guides);
                 } else this.hideGuides();
                 items.forEach(i => i.view.setAt({ x: i.r0.x + dx, y: i.r0.y + dy }));
@@ -423,12 +440,13 @@ class AnnotCanvas {
         };
         const begin = () => {
             dragging = true;
-            timer = setInterval(() => { // près du haut ou du bas de la zone, elle défile toute seule
+            timer = setInterval(() => { // près d'un bord de la zone (haut, bas, gauche, droite), elle défile toute seule
                 if (over !== this.zone) { const z = over; const r = z.getBoundingClientRect(); if (lastY < r.top + 26) z.scrollTop -= 14; else if (lastY > r.bottom - 26) z.scrollTop += 14; return; }
                 const r = this.zone.getBoundingClientRect();
-                const before = this.zone.scrollTop;
-                if (lastY < r.top + 26) this.zone.scrollTop -= 14; else if (lastY > r.bottom - 26) this.zone.scrollTop += 14; else return;
-                if (this.zone.scrollTop !== before) update();
+                const beforeY = this.zone.scrollTop, beforeX = this.zone.scrollLeft;
+                if (lastY < r.top + 26) this.zone.scrollTop -= 14; else if (lastY > r.bottom - 26) this.zone.scrollTop += 14;
+                if (lastX < r.left + 26) this.zone.scrollLeft -= 14; else if (lastX > r.right - 26) this.zone.scrollLeft += 14;
+                if (this.zone.scrollTop !== beforeY || this.zone.scrollLeft !== beforeX) update();
             }, 50);
         };
         const end = (drop) => {
@@ -447,6 +465,7 @@ class AnnotCanvas {
             }
             if (!drop) { restore(); return; }
             if (over === this.zone) {
+                this.fitOnSheets(items); // mode page : le groupe lâché est poussé sur la feuille qu'il recouvre le plus
                 items.forEach(i => i.view.commit());
                 if (this.opts.onMoved) this.opts.onMoved(items.map(i => i.view), false);
                 return;
@@ -457,7 +476,7 @@ class AnnotCanvas {
                 const left = lastX - (x0 - i.s0.left), top = lastY - (y0 - i.s0.top);
                 const r = over.getBoundingClientRect();
                 const zo = acZoomOf(over);
-                return { x: Math.max(0, Math.round((left - r.left - over.clientLeft + over.scrollLeft) / zo)), y: Math.max(0, Math.round((top - r.top - over.clientTop + over.scrollTop) / zo)) };
+                return { x: Math.max(0, Math.round((left - r.left - over.clientLeft + over.scrollLeft - acOffsetX(over)) / zo)), y: Math.max(0, Math.round((top - r.top - over.clientTop + over.scrollTop) / zo)) };
             });
             if (this.opts.onTransfer) this.opts.onTransfer(items, over, points);
         };
@@ -475,12 +494,19 @@ class AnnotCanvas {
         document.addEventListener('keydown', onKey, true);
     }
 
+    // Mode page : pose les blocs `items` ({ el, view }) sur une feuille (opts.fit(rects) donne les places rangées, voir carnet-sheets.js).
+    fitOnSheets(items) {
+        if (!this.zone.__sheet || !this.opts.fit) return;
+        const places = this.opts.fit(items.map(i => this.rectOf(i.el)));
+        if (places) items.forEach((i, k) => { if (places[k]) i.view.setAt(places[k]); });
+    }
+
     // Flèches : la sélection entière se décale de dx, dy pixels (une seule étape d'annulation pour une série).
     nudgeSelected(dx, dy) {
         const items = this.picked().map(b => ({ el: b, view: this.viewOf(b), r: this.rectOf(b) })).filter(i => i.view);
         if (!items.length) return false;
         const bbox = acBounds(items.map(i => i.r));
-        const c = acClampMove(bbox, dx, dy, 0);
+        const c = acClampMove(bbox, dx, dy, this.zoneLimits());
         if (!c.dx && !c.dy) return false;
         items.forEach(i => { i.view.setAt({ x: i.r.x + c.dx, y: i.r.y + c.dy }); i.view.commit(); });
         if (this.opts.onMoved) this.opts.onMoved(items.map(i => i.view), true);
@@ -543,6 +569,6 @@ function acPopManual(pop) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { acPopClamp, acPopSpot, AC_GUTTER, AC_SNAP, AC_DRAG_MIN, AC_MARGIN, AC_GAP, AC_CASCADE, AC_BLOCKS, acBounds, acIntersects, acNormRect, acClampMove, acSnap, acFreeSpot, acPasteOffset, acEmptySpot,
-        AC_ZOOM_MIN, AC_ZOOM_MAX, AC_ZOOM_STEPS, AC_TAP_SLOP, AC_PHONE_QUERY, acIsTap, acIsPhone, acZoomOf, acCanvasWidth, acClampZoom, acZoomStep, acZoomWheel, acZoomOffset, acZoomScroll };
+    module.exports = { acPopClamp, acPopSpot, AC_GUTTER, AC_RIGHT_MAX, AC_SNAP, AC_DRAG_MIN, AC_MARGIN, AC_GAP, AC_CASCADE, AC_BLOCKS, acBounds, acIntersects, acNormRect, acClampMove, acSnap, acFreeSpot, acPasteOffset, acEmptySpot,
+        AC_ZOOM_MIN, AC_ZOOM_MAX, AC_ZOOM_STEPS, AC_TAP_SLOP, AC_PHONE_QUERY, acIsTap, acIsPhone, acZoomOf, acCanvasWidth, acOffsetX, acClampZoom, acZoomStep, acZoomWheel, acZoomOffset, acZoomScroll };
 }

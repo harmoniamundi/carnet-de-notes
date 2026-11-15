@@ -565,7 +565,7 @@ function drawStubHtml(st, at, border) {
 }
 
 // Un cadre copié s'écrit « [dessin@x,y!:320,200|0f172a.3:…] » (place et « ! » facultatifs, comme « [accords…] »).
-const DR_CLIP_RE = new RegExp(`\\[dessin(?:@(\\d{1,4}),(\\d{1,4}))?(!)?:([^\\]\\n]{1,${DR_MAX_LENGTH + 200}})\\]`, 'g');
+const DR_CLIP_RE = new RegExp(`\\[dessin(?:@(\\d{1,5}),(\\d{1,5}))?(!)?:([^\\]\\n]{1,${DR_MAX_LENGTH + 200}})\\]`, 'g');
 
 function drawClipText(st, meta) {
     const at = meta && meta.at ? DR_N.formatBlockAt(meta.at) : '';

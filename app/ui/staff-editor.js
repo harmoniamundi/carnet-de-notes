@@ -490,16 +490,19 @@ class NoteStaffView {
     // La zone d'annotation qui contient la portée (sa largeur fixe la largeur de mise en page).
     _zone() { return this.el.closest('.jam-annot-text') || this.el.parentElement; }
 
+    // Largeur de mise en page de la zone : en mode page, celle de la feuille (elle ne change pas avec la fenêtre ni avec le zoom).
+    _zoneWidth(z) { return z.__sheet ? z.__sheet.size.w : z.clientWidth; }
+
     // Redessine la portée quand la largeur de sa zone change (fenêtre redimensionnée, panneau replié…).
     _observe() {
         if (this._ro || typeof ResizeObserver === 'undefined') return;
         const z = this._zone();
         if (!z) return;
-        this._zoneW = Math.floor(z.clientWidth);
+        this._zoneW = Math.floor(this._zoneWidth(z));
         this._ro = new ResizeObserver(() => {
             if (!this.el.isConnected) { this.destroy(); return; }
             const zz = this._zone();
-            const w = zz ? Math.floor(zz.clientWidth) : 0;
+            const w = zz ? Math.floor(this._zoneWidth(zz)) : 0;
             if (w > 0 && Math.abs(w - this._zoneW) > 6) { this._zoneW = w; this.render(); }
         });
         this._ro.observe(z);
@@ -507,7 +510,8 @@ class NoteStaffView {
 
     // Largeur (en pixels de l'écran) disponible pour mettre la portée en page : celle du bloc en édition, celle de la zone au repos.
     // Les deux états découpent ainsi les lignes de la même façon : activer une portée ne change pas ses retours à la ligne.
-    // En édition le bloc reste où il est : la largeur disponible est ce qui reste de la zone à droite de son coin haut gauche.
+    // Cette largeur ne dépend pas de la place du bloc sur le canevas : déplacé vers la droite, une portée garde sa taille (avant, elle se resserrait
+    // à ce qui restait de la zone à droite de son coin haut gauche).
     _availWidth() {
         const z = this._zone();
         if (!z) return this._lastWidth || 600;
@@ -515,8 +519,9 @@ class NoteStaffView {
         const zs = getComputedStyle(z), es = getComputedStyle(this.el);
         // Téléphone : la portée en édition occupe tout le cadre de la zone (style.css), elle part donc du bord gauche et n'a pas de marge à droite.
         const fills = this.isActive && !this.legacy && typeof acIsPhone === 'function' && acIsPhone();
-        const left = (this.legacy || fills) ? 0 : Math.max(0, this.pos.x);
-        const w = Math.floor(z.clientWidth - left - (fills ? 0 : px(zs.paddingRight)) - px(es.paddingLeft) - px(es.paddingRight) - px(es.borderLeftWidth) - px(es.borderRightWidth) - (this.legacy ? px(zs.paddingLeft) : 0));
+        // Mode page : la portée se met en page entre les marges de la feuille (le bloc se pose donc à x = marge sans déborder à droite).
+        const zoneW = z.__sheet ? z.__sheet.size.w - 2 * z.__sheet.margin + (fills ? 0 : px(zs.paddingRight)) : z.clientWidth;
+        const w = Math.floor(zoneW - (fills ? 0 : px(zs.paddingRight)) - px(es.paddingLeft) - px(es.paddingRight) - px(es.borderLeftWidth) - px(es.borderRightWidth) - (this.legacy ? px(zs.paddingLeft) : 0));
         return w > 120 ? w : Math.max(this._lastWidth || 0, 360);
     }
 
@@ -1037,7 +1042,7 @@ class NoteStaffView {
         if (!z) return;
         const r = z.getBoundingClientRect();
         const k = typeof acZoomOf === 'function' ? acZoomOf(z) : 1; // la zone peut être agrandie : les places sont celles du canevas à 100 %
-        this.setAt({ x: Math.max(0, (desired.left - r.left - z.clientLeft + z.scrollLeft) / k), y: Math.max(0, (desired.top - r.top - z.clientTop + z.scrollTop) / k) });
+        this.setAt({ x: Math.max(0, (desired.left - r.left - z.clientLeft + z.scrollLeft - (typeof acOffsetX === 'function' ? acOffsetX(z) : 0)) / k), y: Math.max(0, (desired.top - r.top - z.clientTop + z.scrollTop) / k) });
     }
 
     // Bord du bloc visible ou non (la portée, elle, reste affichée) ; renvoie true si cela change.

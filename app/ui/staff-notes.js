@@ -266,7 +266,7 @@ function formatStaffPos(pos) {
 // des autres : « x,y » en pixels depuis le coin haut gauche de la zone (attribut data-at). Deux blocs peuvent se recouvrir.
 // L'ancien décalage relatif à la place dans le texte (data-pos, ci-dessus) n'est plus lu que pour reconstruire les annotations écrites avant ce changement.
 
-const SN_AT_MAX = 3000;
+const SN_AT_MAX = 20000;   // 10 feuilles A3 l'une sous l'autre : voir carnet/carnet-sheets.js
 
 function clampBlockAt(v) {
     const n = Math.round(Number(v));
@@ -275,7 +275,7 @@ function clampBlockAt(v) {
 
 // Lit une place « x,y » (entiers positifs) ; renvoie { x, y } ou null si le texte n'est pas valide.
 function parseBlockAt(text) {
-    const m = /^(\d{1,4}),(\d{1,4})$/.exec(typeof text === 'string' ? text.trim() : '');
+    const m = /^(\d{1,5}),(\d{1,5})$/.exec(typeof text === 'string' ? text.trim() : '');
     return m ? { x: clampBlockAt(m[1]), y: clampBlockAt(m[2]) } : null;
 }
 
@@ -334,7 +334,7 @@ function formatFrameBox(box) {
 // Une portée copiée s'écrit « [portée:t,4/4,0;q:c4 8:e4] » ; dans un texte collé, chaque repère de ce genre redevient une portée.
 
 // Après le nom du bloc : sa place facultative « @x,y » (copie de plusieurs blocs : leurs places relatives sont gardées) et « ! » si son cadre est caché.
-const SN_CLIP_RE = /\[portée(?:@(\d{1,4}),(\d{1,4}))?(!)?:([^\]\n]{1,1500})\]|\[cadre(?:@(\d{1,4}),(\d{1,4}))?(!)?:((?:a|\d{1,4})(?:,\d{1,3})?);([^\]\n]{0,30000})\]/g;
+const SN_CLIP_RE = /\[portée(?:@(\d{1,5}),(\d{1,5}))?(!)?:([^\]\n]{1,1500})\]|\[cadre(?:@(\d{1,5}),(\d{1,5}))?(!)?:((?:a|\d{1,4})(?:,\d{1,3})?);([^\]\n]{0,30000})\]/g;
 
 // meta (facultatif) : { at: { x, y }, border: false } → place du bloc et cadre caché.
 function clipMeta(meta) {

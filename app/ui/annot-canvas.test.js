@@ -35,13 +35,17 @@ describe('acNormRect : rectangle de sélection tiré dans n\'importe quel sens',
     });
 });
 
-describe('acClampMove : un groupe ne sort pas de la zone par le haut, la gauche ou la droite', () => {
-    test('déplacement libre au milieu de la zone', () => assert.deepEqual(C.acClampMove(R(50, 50, 40, 20), 10, -5, 400), { dx: 10, dy: -5 }));
-    test('bloqué par le bord gauche et par le bord haut', () => assert.deepEqual(C.acClampMove(R(10, 8, 40, 20), -30, -30, 400), { dx: -10, dy: -8 }));
-    test('bloqué par le bord droit s\'il tient dans la zone, en laissant la marge des boutons du bloc', () => assert.deepEqual(C.acClampMove(R(300, 0, 80, 20), 100, 0, 400), { dx: 400 - C.AC_GUTTER - 80 - 300, dy: 0 }));
-    test('plus large que la zone : la droite ne le retient pas', () => assert.deepEqual(C.acClampMove(R(0, 0, 500, 20), 30, 0, 400), { dx: 30, dy: 0 }));
-    test('vers le bas : toujours libre (la zone défile)', () => assert.deepEqual(C.acClampMove(R(0, 0, 40, 20), 0, 900, 400), { dx: 0, dy: 900 }));
-    test('résultat arrondi au pixel', () => assert.deepEqual(C.acClampMove(R(50, 50, 40, 20), 3.4, 2.6, 400), { dx: 3, dy: 3 }));
+describe('acClampMove : un groupe ne sort pas du canevas par le haut ou la gauche, et la droite ne le retient plus au bord de la zone', () => {
+    test('déplacement libre au milieu de la zone', () => assert.deepEqual(C.acClampMove(R(50, 50, 40, 20), 10, -5), { dx: 10, dy: -5 }));
+    test('bloqué par le bord gauche et par le bord haut', () => assert.deepEqual(C.acClampMove(R(10, 8, 40, 20), -30, -30), { dx: -10, dy: -8 }));
+    test('au-delà du bord droit de la zone : plus de mur (la zone défile)', () => assert.deepEqual(C.acClampMove(R(300, 0, 80, 20), 900, 0), { dx: 900, dy: 0 }));
+    test('seule la limite des places du canevas retient à droite', () => {
+        const c = C.acClampMove(R(300, 0, 80, 20), 99999, 0);
+        assert.equal(300 + c.dx + 80, C.AC_RIGHT_MAX);
+    });
+    test('un bloc déjà au-delà de la limite n\'est pas ramené en arrière par elle', () => assert.deepEqual(C.acClampMove(R(2990, 0, 80, 20), 10, 0), { dx: 0, dy: 0 }));
+    test('vers le bas : toujours libre (la zone défile)', () => assert.deepEqual(C.acClampMove(R(0, 0, 40, 20), 0, 900), { dx: 0, dy: 900 }));
+    test('résultat arrondi au pixel', () => assert.deepEqual(C.acClampMove(R(50, 50, 40, 20), 3.4, 2.6), { dx: 3, dy: 3 }));
 });
 
 describe('acSnap : repères d\'alignement et aimant', () => {
@@ -265,10 +269,10 @@ describe('canevas dézoomé : toute la partie visible est utilisable', () => {
         assert.equal(C.acCanvasWidth({ clientWidth: 1000, __zoom: 2 }), 1000);
         assert.equal(C.acCanvasWidth({ clientWidth: 1000 }), 1000);
     });
-    test('un bloc peut être déplacé jusqu\'au bord droit visible à 50 % (moins la marge des boutons)', () => {
+    test('un bloc peut être déplacé au moins jusqu\'au bord droit visible à 50 %, et au-delà', () => {
         const w = C.acCanvasWidth({ clientWidth: 1000, __zoom: 0.5 });
-        const c = C.acClampMove({ x: 100, y: 0, w: 200, h: 50 }, 2500, 0, w);
-        assert.equal(100 + c.dx + 200, 2000 - C.AC_GUTTER);   // la marge de droite reste libre pour le crayon et ▶
+        const c = C.acClampMove({ x: 100, y: 0, w: 200, h: 50 }, 2500, 0);
+        assert.ok(100 + c.dx + 200 > w);
     });
 });
 
@@ -320,5 +324,42 @@ describe('acPasteOffset : où retombent des blocs collés', () => {
     test('sans place connue ou numéro invalide : pas de décalage ou un seul cran', () => {
         assert.deepEqual(C.acPasteOffset([], view, 1), { dx: 0, dy: 0 });
         assert.deepEqual(C.acPasteOffset([{ x: 10, y: 10 }], view, 0), { dx: C.AC_CASCADE, dy: C.AC_CASCADE });
+    });
+});
+
+describe('mode page : murs de la feuille, centrage, largeur du canevas', () => {
+    const lim = { right: 794, bottom: 5000 };
+    test('un bloc ne dépasse pas le bord droit de la feuille', () => {
+        assert.deepEqual(C.acClampMove(R(600, 0, 100, 20), 500, 0, lim), { dx: 94, dy: 0 });
+        assert.deepEqual(C.acClampMove(R(694, 0, 100, 20), 50, 0, lim), { dx: 0, dy: 0 });
+    });
+    test('un bloc déjà au-delà du bord ne peut que revenir vers la gauche', () => {
+        assert.deepEqual(C.acClampMove(R(900, 0, 100, 20), 50, 0, lim), { dx: 0, dy: 0 });
+        assert.deepEqual(C.acClampMove(R(900, 0, 100, 20), -50, 0, lim), { dx: -50, dy: 0 });
+    });
+    test('bas : un bloc ne dépasse pas la dernière feuille', () => {
+        assert.deepEqual(C.acClampMove(R(0, 4900, 40, 60), 0, 500, lim), { dx: 0, dy: 40 });
+        assert.deepEqual(C.acClampMove(R(0, 100, 40, 60), 0, 500, lim), { dx: 0, dy: 500 });
+    });
+    test('sans limites (téléphone), le comportement est inchangé', () => {
+        assert.deepEqual(C.acClampMove(R(300, 0, 80, 20), 900, 0, undefined), { dx: 900, dy: 0 });
+        assert.deepEqual(C.acClampMove(R(300, 0, 80, 20), 900, 0, 0), { dx: 900, dy: 0 });
+    });
+    test('acCanvasWidth : en mode page, la largeur d\'une feuille quelle que soit la zone et le zoom', () => {
+        const z = { clientWidth: 1000, __zoom: 0.4, __sheet: { size: { w: 794, h: 1123 } } };
+        assert.equal(C.acCanvasWidth(z), 794);
+        assert.equal(C.acCanvasWidth({ ...z, clientWidth: 300, __zoom: 3 }), 794);
+    });
+    test('acOffsetX : décalage de centrage, 0 par défaut', () => {
+        assert.equal(C.acOffsetX({ __ox: 120 }), 120);
+        assert.equal(C.acOffsetX({}), 0);
+        assert.equal(C.acOffsetX(null), 0);
+        assert.equal(C.acOffsetX({ __ox: -5 }), 0);
+    });
+    test('acClampZoom / acZoomWheel : le plancher peut être abaissé (zoom relatif à la feuille)', () => {
+        assert.equal(C.acClampZoom(0.3), 0.5);
+        assert.equal(C.acClampZoom(0.3, 0.2), 0.3);
+        assert.ok(C.acZoomWheel(0.4, 30, 0, 0.2) < 0.4);
+        assert.equal(C.acZoomWheel(0.5, 30, 0), 0.5); // plancher habituel : 50 %
     });
 });

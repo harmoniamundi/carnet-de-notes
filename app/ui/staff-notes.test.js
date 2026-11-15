@@ -349,7 +349,7 @@ describe('place d\'un bloc sur le canevas (data-at) et bord visible (data-border
         assert.deepEqual(S.parseBlockAt(`${S.SN_AT_MAX + 1},0`), { x: S.SN_AT_MAX, y: 0 }); // au-delà de la limite : ramené à la limite
     });
     test('lecture : tout le reste est refusé (négatif, décimal, trop de chiffres, texte)', () => {
-        for (const bad of ['', null, undefined, 'x', '1', '1,2,3', '-1,5', '5,-1', '1.5,2', '1,2.5', '0,99999', '7 , 9', '１,２']) assert.equal(S.parseBlockAt(bad), null, String(bad));
+        for (const bad of ['', null, undefined, 'x', '1', '1,2,3', '-1,5', '5,-1', '1.5,2', '1,2.5', '0,999999', '7 , 9', '１,２']) assert.equal(S.parseBlockAt(bad), null, String(bad));
     });
     test('écriture : aller-retour identique, texte vide sans place', () => {
         assert.equal(S.formatBlockAt({ x: 12, y: 34 }), '12,34');

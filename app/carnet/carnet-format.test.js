@@ -73,6 +73,8 @@ describe('document carnet', () => {
         assert.ok(c.pages.length <= F.CARNET_MAX_PAGES);
         assert.ok(c.settings.bpm <= F.CARNET_BPM_MAX);
         assert.ok(F.CARNET_INSTRUMENTS.includes(c.settings.instrument));
+        assert.equal(c.settings.paper, 'A4');
+        assert.equal(c.settings.orient, 'portrait');
     });
     test('carnetIsEmpty / carnetSignature', () => {
         const c = F.newCarnet();
@@ -142,6 +144,13 @@ describe('cadre de dessin : fond', () => {
 describe('réglages du carnet', () => {
     test('l\'instrument par défaut d\'un carnet neuf est Si♭', () => {
         assert.equal(F.newCarnet().settings.instrument, 'Bb');
+        assert.equal(F.newCarnet().settings.paper, 'A4');
+        const lands = F.sanitizeCarnet({ pages: [{ name: 'a', html: '' }], settings: { paper: 'Letter', orient: 'landscape' } });
+        assert.equal(lands.settings.paper, 'Letter');
+        assert.equal(lands.settings.orient, 'landscape');
+        const bad = F.sanitizeCarnet({ pages: [{ name: 'a', html: '' }], settings: { paper: 'A0', orient: 'diagonal' } });
+        assert.equal(bad.settings.paper, 'A4');
+        assert.equal(bad.settings.orient, 'portrait');
         assert.equal(F.sanitizeCarnetSettings(null).instrument, 'Bb');
     });
 });

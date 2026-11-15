@@ -34,6 +34,12 @@
                     <svg class="cn-save-ok" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
                 </button>
             </div>
+            <div class="cn-group cn-sheet-fmt" role="group" aria-label="Feuille">
+                <select id="cn-paper" class="cn-sel" onchange="app.setSheetFormat(this.value, null)" title="Format de la feuille (pour tout le carnet)" aria-label="Format de la feuille">
+                    <option value="A4">A4</option><option value="A3">A3</option><option value="A5">A5</option><option value="Letter">Letter</option>
+                </select>
+                <button type="button" id="cn-orient" class="cn-btn cn-ico" onclick="app.toggleSheetOrient()" title="Feuille en portrait — cliquer pour passer en paysage" aria-label="Orientation de la feuille">▯</button>
+            </div>
             <div class="cn-group cn-files" role="group" aria-label="Carnets">
                 <button type="button" class="cn-btn" onclick="app.newDocument()" title="Nouveau carnet">Nouveau</button>
                 <button type="button" class="cn-btn" onclick="app.openSavedMenu(this)" title="Ouvrir un carnet sauvegardé dans ce navigateur" aria-haspopup="true">Ouvrir ▾</button>
@@ -59,6 +65,7 @@
 <script src="app/ui/chord-notes.js"></script>
 <script src="app/ui/draw-notes.js"></script>
 <script src="app/carnet/carnet-format.js"></script>
+<script src="app/carnet/carnet-sheets.js"></script>
 <script src="app/ui/staff-editor.js"></script>
 <script src="app/ui/text-frame.js"></script>
 <script src="app/ui/annot-canvas.js"></script>

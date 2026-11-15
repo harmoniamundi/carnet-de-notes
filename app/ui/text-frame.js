@@ -295,7 +295,7 @@ class NoteFrameView {
         if (!z) return NTF_N.SN_FRAME_SCALE_MAX;
         const px = (v) => parseFloat(v) || 0;
         const zs = getComputedStyle(z);
-        const room = z.clientWidth - px(zs.paddingLeft) - px(zs.paddingRight) - 12;
+        const room = z.__sheet ? z.__sheet.size.w - 2 * z.__sheet.margin : z.clientWidth - px(zs.paddingLeft) - px(zs.paddingRight) - 12; // mode page : jusqu'aux marges de la feuille
         return Math.max(NTF_N.SN_FRAME_SCALE_MIN, room / this._baseWidth() * 100);
     }
 
@@ -388,7 +388,7 @@ class NoteFrameView {
         if (!z) return;
         const r = z.getBoundingClientRect();
         const k = typeof acZoomOf === 'function' ? acZoomOf(z) : 1; // la zone peut être agrandie : les places sont celles du canevas à 100 %
-        this.setAt({ x: Math.max(0, (desired.left - r.left - z.clientLeft + z.scrollLeft) / k), y: Math.max(0, (desired.top - r.top - z.clientTop + z.scrollTop) / k) });
+        this.setAt({ x: Math.max(0, (desired.left - r.left - z.clientLeft + z.scrollLeft - (typeof acOffsetX === 'function' ? acOffsetX(z) : 0)) / k), y: Math.max(0, (desired.top - r.top - z.clientTop + z.scrollTop) / k) });
     }
 
     // Sélectionne le cadre (seul) : la zone prend le focus pour que Suppr., les flèches et ⌘C s'appliquent à lui.

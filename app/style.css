@@ -230,8 +230,8 @@
 .jam-annot-text[data-editable="true"] { border-color: #60a5fa; }
 /* Zone verrouillée : le doigt la fait défiler, le pincement zoome (géré en JS) ; les blocs agrandis partent du coin haut gauche */
 .jam-annot-text[data-editable="false"] { touch-action: pan-x pan-y; }
-.jam-annot-text.is-zoomed:not(.legacy-flow) > .annot-staff, .jam-annot-text.is-zoomed:not(.legacy-flow) > .annot-frame { transform: scale(var(--z, 1)); transform-origin: calc(var(--bx, 0px) * -1) calc(var(--by, 0px) * -1); }
-.jam-annot-text.is-zoomed > .annot-overlay { transform: scale(var(--z, 1)); transform-origin: 0 0; } /* repères et rectangle de sélection, tracés aux coordonnées du canevas */
+.jam-annot-text.is-zoomed:not(.legacy-flow) > .annot-staff, .jam-annot-text.is-zoomed:not(.legacy-flow) > .annot-frame { transform: translateX(var(--ox, 0px)) scale(var(--z, 1)); transform-origin: calc(var(--bx, 0px) * -1) calc(var(--by, 0px) * -1); }
+.jam-annot-text.is-zoomed > .annot-overlay { transform: translateX(var(--ox, 0px)) scale(var(--z, 1)); transform-origin: 0 0; } /* repères et rectangle de sélection, tracés aux coordonnées du canevas */
 .ns-tempo .ns-num, .ns-swing .ns-sel-inline { border: 0; background: transparent; height: 26px; }
 
 /* ===== Téléphone : édition des portées et des blocs d'annotation =====
@@ -401,7 +401,7 @@ body { background: #121212; color: #f1f5f9; font: 14px/1.4 system-ui, -apple-sys
 .jam-annot-text[data-editable="true"] .annot-chords.no-border:not(.is-editing):hover { border-color: #60a5fa; }
 .annot-chords.no-border.is-editing { border-color: #3b82f6; background: #fff; box-shadow: 0 0 0 1px #3b82f6; }
 .annot-chords.no-border.is-picked { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, .45); }
-.jam-annot-text.is-zoomed:not(.legacy-flow) > .annot-chords { transform: scale(var(--z, 1)); transform-origin: calc(var(--bx, 0px) * -1) calc(var(--by, 0px) * -1); }
+.jam-annot-text.is-zoomed:not(.legacy-flow) > .annot-chords { transform: translateX(var(--ox, 0px)) scale(var(--z, 1)); transform-origin: calc(var(--bx, 0px) * -1) calc(var(--by, 0px) * -1); }
 .annot-chords-edit { display: none; position: absolute; left: calc(100% + 5px); top: 0; z-index: 3; width: 20px; height: 20px; padding: 0; align-items: center; justify-content: center; border: 0; border-radius: 10px;
     background: #2563eb; color: #fff; font: 700 12px/1 system-ui, sans-serif; cursor: pointer; box-shadow: 0 1px 4px rgba(0, 0, 0, .45); }
 .annot-chords-edit:hover { background: #1d4ed8; }
@@ -479,7 +479,7 @@ body { background: #121212; color: #f1f5f9; font: 14px/1.4 system-ui, -apple-sys
 .jam-annot-text[data-editable="true"] .annot-draw.no-border:not(.is-editing):hover { border-color: #60a5fa; }
 .annot-draw.no-border.is-editing { border-color: #3b82f6; background: #fff; box-shadow: 0 0 0 1px #3b82f6; }
 .annot-draw.no-border.is-picked { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, .45); }
-.jam-annot-text.is-zoomed:not(.legacy-flow) > .annot-draw { transform: scale(var(--z, 1)); transform-origin: calc(var(--bx, 0px) * -1) calc(var(--by, 0px) * -1); }
+.jam-annot-text.is-zoomed:not(.legacy-flow) > .annot-draw { transform: translateX(var(--ox, 0px)) scale(var(--z, 1)); transform-origin: calc(var(--bx, 0px) * -1) calc(var(--by, 0px) * -1); }
 .annot-draw-edit { display: none; position: absolute; left: calc(100% + 5px); top: 0; z-index: 3; width: 20px; height: 20px; padding: 0; align-items: center; justify-content: center; border: 0; border-radius: 10px;
     background: #2563eb; color: #fff; font: 700 11px/1 system-ui, sans-serif; cursor: pointer; box-shadow: 0 1px 4px rgba(0, 0, 0, .45); }
 .annot-draw-edit:hover { background: #1d4ed8; }
@@ -578,3 +578,18 @@ body.cn-fake-fs .cn-header { display: none; }
 body.cn-fake-fs .cn-tabs { padding-top: max(0px, env(safe-area-inset-top)); }
 .jam-annot-fs { margin-left: 4px; }
 .jam-annot-fs[aria-pressed="true"] { background: #2563eb; border-color: #93c5fd; color: #fff; }
+
+/* ===== Mode page : le Carnet est une pile de feuilles (A4, A3, A5, Letter ; portrait ou paysage) =====
+   Les feuilles sont dessinées par le fond de la zone (carnet-engine.js : _annotSheetLayout) ; la « table » entre elles est la couleur de fond.
+   Le pseudo-élément ::after n'est là que pour donner sa hauteur (et sa largeur) à la zone qui défile. */
+.jam-annot-text.is-paged { overflow-y: scroll; background-color: #c4ccd8; }
+.jam-annot-text.is-paged::after { content: ''; position: absolute; left: 0; top: 0; width: var(--sheets-w, 1px); height: var(--sheets-h, 1px); visibility: hidden; pointer-events: none; }
+/* Un bloc à cheval sur deux feuilles (ou dans l'espace entre elles) : cerclé de rouge ; hors de la feuille, à droite : grisé en plus */
+.jam-annot-text.is-paged > .is-straddle { outline: 2px dashed #ef4444; outline-offset: 2px; }
+.jam-annot-text.is-paged > .is-offside { outline: 2px solid #ef4444; outline-offset: 2px; opacity: .55; filter: grayscale(.8); }
+.cn-sheet-warn { padding: 1px 8px; border-radius: 10px; background: #7f1d1d; color: #fecaca; font: 700 10px/1.5 system-ui, sans-serif; letter-spacing: 0; text-transform: none; cursor: help; }
+.cn-sheet-warn[hidden] { display: none; }
+.cn-sel { height: 30px; padding: 0 6px; border-radius: 7px; border: 1px solid #3a3a3c; background: #2a2a2c; color: #e2e8f0; font: 600 12px system-ui, sans-serif; cursor: pointer; }
+.cn-sel:focus { outline: none; border-color: #60a5fa; }
+/* Téléphone : pas de mode page (la zone reste un canevas continu), donc pas de choix de feuille */
+@media (max-width: 639px), (pointer: coarse) and (max-height: 500px) { .cn-sheet-fmt { display: none; } }

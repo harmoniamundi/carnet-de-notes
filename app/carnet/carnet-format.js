@@ -247,6 +247,8 @@ const CARNET_PAGE_NAME_MAX = 40;
 const CARNET_BPM_MIN = 30, CARNET_BPM_MAX = 300, CARNET_BPM_DEFAULT = 100; // mêmes bornes que SN_BPM_MIN / SN_BPM_MAX (ui/staff-notes.js)
 const CARNET_SWING_MIN = 50, CARNET_SWING_MAX = 75; // swing de lecture en % : 50 = croches droites, 67 = triolet
 const CARNET_INSTRUMENTS = ['C', 'Bb', 'Eb'];        // instrument transpositeur : la hauteur écrite est transposée à la lecture
+const CARNET_PAPERS = ['A4', 'A3', 'A5', 'Letter'];  // formats de feuille (voir carnet-sheets.js, qui en donne les dimensions)
+const CARNET_ORIENTS = ['portrait', 'landscape'];
 const CARNET_TRANSPOSE = { C: 0, Bb: -2, Eb: -9 };   // décalage en demi-tons appliqué à la lecture (mêmes valeurs que Chord Scales)
 
 // Texte court sans caractère de contrôle, coupé à max signes ; '' si ce n'est pas un texte.
@@ -256,7 +258,7 @@ function carnetCleanText(v, max) {
 }
 
 // Instrument par défaut : en Si♭ (la hauteur écrite est jouée un ton plus bas).
-function defaultCarnetSettings() { return { bpm: CARNET_BPM_DEFAULT, swing: CARNET_SWING_MIN, instrument: 'Bb' }; }
+function defaultCarnetSettings() { return { bpm: CARNET_BPM_DEFAULT, swing: CARNET_SWING_MIN, instrument: 'Bb', paper: 'A4', orient: 'portrait' }; }
 
 // Réglages de lecture : tempo (noires par minute), swing (%), instrument. Toute valeur absente ou hors limites revient à la valeur par défaut.
 function sanitizeCarnetSettings(raw) {
@@ -266,7 +268,9 @@ function sanitizeCarnetSettings(raw) {
     return {
         bpm: Number.isFinite(bpm) && bpm >= CARNET_BPM_MIN && bpm <= CARNET_BPM_MAX ? bpm : d.bpm,
         swing: Number.isFinite(swing) && swing >= CARNET_SWING_MIN && swing <= CARNET_SWING_MAX ? swing : d.swing,
-        instrument: CARNET_INSTRUMENTS.includes(raw.instrument) ? raw.instrument : d.instrument
+        instrument: CARNET_INSTRUMENTS.includes(raw.instrument) ? raw.instrument : d.instrument,
+        paper: CARNET_PAPERS.includes(raw.paper) ? raw.paper : d.paper,                // feuille : format et sens, pour tout le carnet
+        orient: CARNET_ORIENTS.includes(raw.orient) ? raw.orient : d.orient
     };
 }
 
@@ -360,7 +364,7 @@ function carnetFromChordScales(raw) {
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = { PAGE_NOTE_MAX, NOTE_MAX_STAVES, NOTE_MAX_FRAMES, NOTE_MAX_CHORDS, NOTE_MAX_DRAWS, NOTE_FONTS, sanitizeNoteHtml,
         CARNET_FORMAT, CARNET_VERSION, CARNET_MAX_PAGES, CARNET_TITLE_MAX, CARNET_PAGE_NAME_MAX, CARNET_BPM_MIN, CARNET_BPM_MAX, CARNET_BPM_DEFAULT,
-        CARNET_SWING_MIN, CARNET_SWING_MAX, CARNET_INSTRUMENTS, CARNET_TRANSPOSE,
+        CARNET_SWING_MIN, CARNET_SWING_MAX, CARNET_INSTRUMENTS, CARNET_PAPERS, CARNET_ORIENTS, CARNET_TRANSPOSE,
         carnetCleanText, defaultCarnetSettings, sanitizeCarnetSettings, sanitizeCarnetPage, newCarnet, sanitizeCarnet, carnetToFile,
         carnetSignature, carnetIsEmpty, nextPageName, carnetFileName, carnetFromChordScales };
 }
