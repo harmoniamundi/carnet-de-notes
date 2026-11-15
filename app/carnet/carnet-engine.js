@@ -134,6 +134,11 @@ class CarnetApp {
             if (document.hidden) { try { this._commitLive(); } catch (e) {} this._writeDraft(); } else this._syncSoon(500);
         });
         window.addEventListener('online', () => this._syncSoon(500));
+        window.addEventListener('afterprint', () => this._printCleanup());
+        window.addEventListener('beforeprint', () => { if (!document.getElementById('cn-print')) { try { this._flush(); this._printBuild(false); } catch (e) {} } }); // Fichier ▸ Imprimer du navigateur
+        document.addEventListener('keydown', (ev) => { // ⌘P / Ctrl+P : la page, feuille par feuille
+            if ((ev.metaKey || ev.ctrlKey) && !ev.altKey && !ev.shiftKey && String(ev.key).toLowerCase() === 'p') { ev.preventDefault(); this.printCarnet(false); }
+        }, true);
     }
 
     // ===== État du document, annulation =====
@@ -223,6 +228,82 @@ class CarnetApp {
             orient.title = land ? 'Feuille en paysage — cliquer pour passer en portrait' : 'Feuille en portrait — cliquer pour passer en paysage';
             orient.setAttribute('aria-label', orient.title);
         }
+    }
+
+    // ===== Impression =====
+    // Une feuille imprimée par feuille de la page : chaque bloc est copié sur la feuille qu'il recouvre le plus, à sa place sur la feuille. L'interface est
+    // masquée par style.css (body.cn-printing), le format du papier est celui du carnet (@page). Le navigateur garde la main sur le reste (imprimante, marges, PDF).
+    onPrintClick(anchor) {
+        if (this.doc.pages.length < 2) { this.printCarnet(false); return; }
+        this._openMenu(anchor, 'cn-menu-print',
+            '<button type="button" class="cn-menu-item" data-act="page">Cette page</button>'
+            + `<button type="button" class="cn-menu-item" data-act="all">Tout le carnet (${this.doc.pages.length} pages)</button>`,
+            (act) => this.printCarnet(act === 'all'));
+    }
+
+    // Copies des blocs de la zone ed, rangées par feuille : tableau (une case par feuille, au moins une) de listes de blocs, placés sur leur feuille.
+    _printCollect(ed, size) {
+        const cv = ed && ed.__canvas, sheets = [[]];
+        if (!cv) return sheets;
+        cv.blocks().forEach((el) => {
+            const r = cv.rectOf(el), k = sheetOfRect(r, size);
+            const c = el.cloneNode(true);
+            c.classList.remove('is-picked', 'is-editing', 'is-active', 'is-straddle', 'is-offside', 'is-dragging-src', 'ns-playing');
+            c.querySelectorAll('.annot-staff-edit, .annot-frame-edit, .annot-chords-edit, .annot-draw-edit, .annot-draw-eraser, .annot-draw-grip, .annot-staff-tools, .annot-staff-hint, .annot-ghost, .annot-staff-flash').forEach(n => n.remove());
+            const y = r.y - sheetTop(k, size);
+            c.style.left = `${r.x}px`; c.style.top = `${y}px`;
+            c.style.setProperty('--bx', `${r.x}px`); c.style.setProperty('--by', `${y}px`);
+            while (sheets.length <= k) sheets.push([]);
+            sheets[k].push(c);
+        });
+        return sheets;
+    }
+
+    // Prépare le contenu à imprimer (#cn-print) : la page affichée, ou toutes les pages (les pages vides sont sautées, sauf si tout est vide).
+    _printBuild(all) {
+        this._printCleanup();
+        const st = this.doc.settings, paper = sheetPaper(st.paper), orient = sheetOrient(st.orient), size = sheetSize(paper, orient);
+        let pages = [];
+        if (!all) pages.push(this._printCollect(this.zone, size));
+        else {
+            const ed = this.zone, keep = { page: this.doc.current, top: ed.scrollTop, left: ed.scrollLeft };
+            try {
+                for (let i = 0; i < this.doc.pages.length; i++) { this.doc.current = i; this._renderPage(); pages.push(this._printCollect(this.zone, size)); }
+            } finally { this.doc.current = keep.page; this._renderPage(); this.zone.scrollTop = keep.top; this.zone.scrollLeft = keep.left; }
+            const used = pages.filter(p => p.some(sh => sh.length));
+            if (used.length) pages = used;
+            else pages = pages.slice(0, 1);
+        }
+        const [mw, mh] = SHEET_PAPERS[paper].mm, wmm = orient === 'landscape' ? mh : mw, hmm = orient === 'landscape' ? mw : mh;
+        const box = document.createElement('div');
+        box.id = 'cn-print';
+        box.setAttribute('aria-hidden', 'true');
+        pages.forEach((sheets) => sheets.forEach((blocks) => {
+            const sh = document.createElement('div');
+            sh.className = 'jam-annot-text cn-print-sheet';
+            sh.setAttribute('data-editable', 'false');
+            sh.style.width = `${wmm}mm`; sh.style.height = `${(hmm - 0.4).toFixed(1)}mm`; // un peu moins que la feuille : pas de page blanche en trop
+            blocks.forEach(b => sh.appendChild(b));
+            box.appendChild(sh);
+        }));
+        const css = document.createElement('style');
+        css.id = 'cn-print-page';
+        css.textContent = `@page { size: ${wmm}mm ${hmm}mm; margin: 0; }`;
+        document.head.appendChild(css);
+        document.body.appendChild(box);
+        document.body.classList.add('cn-printing');
+    }
+
+    _printCleanup() {
+        ['cn-print', 'cn-print-page'].forEach((id) => { const n = document.getElementById(id); if (n) n.remove(); });
+        document.body.classList.remove('cn-printing');
+    }
+
+    printCarnet(all) {
+        this._closeMenu();
+        this._flush();
+        this._printBuild(!!all);
+        setTimeout(() => { try { window.print(); } catch (e) { this._printCleanup(); } }, 60);
     }
 
     // Format de la feuille (papier, sens) : un seul pour tout le carnet, annulable. Les portées se remettent en page à la largeur de la nouvelle feuille.
@@ -968,7 +1049,7 @@ class CarnetApp {
             b.classList.toggle('is-straddle', cut);
             if (out || cut) bad++;
         });
-        const bg = sheetBackground(sh.size, ed.__zoom, ed.__ox, sheetCount(rects, sh.size), sheetBrokenGaps(rects, sh.size));
+        const bg = sheetBackground(sh.size, ed.__zoom, ed.__ox, sheetCount(rects, sh.size), sheetBrokenGaps(rects, sh.size), SHEET_MARGIN);
         ed.style.backgroundImage = bg.image; ed.style.backgroundSize = bg.size; ed.style.backgroundPosition = bg.position;
         ed.style.backgroundRepeat = bg.repeat; ed.style.backgroundAttachment = bg.attachment;
         ed.style.setProperty('--sheets-h', `${bg.height + 24}px`);

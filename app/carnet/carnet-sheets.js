@@ -141,12 +141,19 @@ function sheetOffsetX(clientWidth, size, scale) { return Math.max(0, Math.floor(
 // ----- Fond de la zone : les feuilles sont dessinées en CSS (background multiple), sans élément dans la zone -----
 
 // Renvoie { image, size, position, repeat, attachment, height, width } à poser sur la zone. s : échelle d'affichage ; ox : décalage ; n : nombre de feuilles ;
-// broken : espaces à teinter en rouge.
-function sheetBackground(size, s, ox, n, broken = []) {
+// broken : espaces à teinter en rouge ; margin : si > 0, un liseré discret marque la zone imprimable (à `margin` pixels du bord de chaque feuille).
+function sheetBackground(size, s, ox, n, broken = [], margin = 0) {
     const px = (v) => `${Math.round(v * 100) / 100}px`;
     const layers = [];
     const solid = (c) => `linear-gradient(${c}, ${c})`;
     for (const k of broken) if (k >= 0 && k < n - 1) layers.push({ img: solid('rgba(239, 68, 68, .75)'), w: size.w * s, h: SHEET_GAP * s, x: ox, y: (sheetTop(k, size) + size.h) * s });
+    if (margin > 0 && size.w > 2 * margin && size.h > 2 * margin) {
+        const g = solid('rgba(100, 116, 139, .35)'), iw = (size.w - 2 * margin) * s, ih = (size.h - 2 * margin) * s;
+        for (let k = 0; k < n; k++) {
+            const x = ox + margin * s, y = (sheetTop(k, size) + margin) * s;
+            layers.push({ img: g, w: iw, h: 1, x, y }, { img: g, w: iw, h: 1, x, y: y + ih - 1 }, { img: g, w: 1, h: ih, x, y }, { img: g, w: 1, h: ih, x: x + iw - 1, y });
+        }
+    }
     for (let k = 0; k < n; k++) layers.push({ img: solid('#fff'), w: size.w * s, h: size.h * s, x: ox, y: sheetTop(k, size) * s });
     for (let k = 0; k < n; k++) layers.push({ img: solid('#8d99ab'), w: size.w * s + 2, h: size.h * s + 2, x: ox - 1, y: sheetTop(k, size) * s - 1 });
     return {

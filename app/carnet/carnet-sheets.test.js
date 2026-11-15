@@ -128,3 +128,11 @@ test('sheetBackground : une couche par feuille (+ contour), les espaces cassés 
     assert.equal(r.image.split('linear-gradient').length - 1, 7);   // l'espace 7 n'existe pas : ignoré
     assert.ok(r.image.startsWith('linear-gradient(rgba(239'));
 });
+
+test('sheetBackground : avec une marge, 4 liserés par feuille marquent la zone imprimable (au-dessus du papier)', () => {
+    const b = S.sheetBackground(A4, 1, 0, 2, [], S.SHEET_MARGIN);
+    assert.equal(b.image.split('linear-gradient').length - 1, 2 * 4 + 2 + 2);
+    assert.ok(b.position.startsWith(`${S.SHEET_MARGIN}px ${S.SHEET_MARGIN}px`));
+    assert.equal(S.sheetBackground(A4, 1, 0, 2, [], 0).image.split('linear-gradient').length - 1, 4);
+    assert.equal(S.sheetBackground(A4, 1, 0, 1, [], 600).image.split('linear-gradient').length - 1, 2); // marge absurde : ignorée
+});

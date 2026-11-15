@@ -43,6 +43,7 @@
             <div class="cn-group cn-files" role="group" aria-label="Carnets">
                 <button type="button" class="cn-btn" onclick="app.newDocument()" title="Nouveau carnet">Nouveau</button>
                 <button type="button" class="cn-btn" onclick="app.openSavedMenu(this)" title="Ouvrir un carnet sauvegardé dans ce navigateur" aria-haspopup="true">Ouvrir ▾</button>
+                <button type="button" class="cn-btn" onclick="app.onPrintClick(this)" title="Imprimer (⌘P) : une feuille imprimée par feuille de la page, au format choisi" aria-haspopup="true">Imprimer</button>
                 <button type="button" class="cn-btn" onclick="app.exportFile()" title="Exporter le carnet en fichier .json">Exporter</button>
                 <button type="button" class="cn-btn" onclick="document.getElementById('cn-import-file').click()" title="Importer un fichier .json (carnet, ou grille exportée de Chord Scales)">Importer</button>
             </div>
