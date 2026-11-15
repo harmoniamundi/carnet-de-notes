@@ -15,13 +15,14 @@ const GF_CHORDS = (typeof chordsCanon !== 'undefined') ? { chordsCanon } : requi
 // Cadres de dessin libre (ui/draw-notes.js) : « data-draw » est relu (traits compris) et réécrit sous sa forme canonique.
 const GF_DRAW = (typeof drawCanon !== 'undefined') ? { drawCanon } : require('../ui/draw-notes.js');
 
-// Limites d'une page : 8000 signes de texte, 8 portées, 12 blocs d'accords et 8 cadres de texte (le texte d'un cadre compte dans la limite de la page ;
-// pas de cadre dans un cadre, ni de portée). Un carnet compte jusqu'à 40 pages.
-const PAGE_NOTE_MAX = 8000;
-const NOTE_MAX_STAVES = 8;
-const NOTE_MAX_FRAMES = 8;
-const NOTE_MAX_CHORDS = 12; // blocs d'accords par page (jusqu'à 16 accords chacun)
-const NOTE_MAX_DRAWS = 6;   // cadres de dessin par page (leurs traits ne comptent pas dans la limite du texte)
+// Limites d'une page : 40000 signes de texte, 50 portées, 50 blocs d'accords, 50 cadres de texte et 50 cadres de dessin (le texte d'un cadre compte dans la limite
+// de la page ; pas de cadre dans un cadre, ni de portée). Un carnet compte jusqu'à 40 pages.
+const PAGE_NOTE_MAX = 40000;
+const NOTE_MAX_STAVES = 50;
+const NOTE_MAX_FRAMES = 50;
+const NOTE_MAX_CHORDS = 50; // blocs d'accords par page (jusqu'à 16 accords chacun)
+const NOTE_MAX_DRAWS = 50;  // cadres de dessin par page (leurs traits ne comptent pas dans la limite du texte)
+const NOTE_MAX_ELEMENTS = 2000; // éléments HTML par page (un bloc en compte un ; chaque mise en forme ou ligne d'un cadre de texte aussi)
 const MEASURE_NOTE_MAX = PAGE_NOTE_MAX; // nom d'origine, valeur par défaut du nettoyeur ci-dessous
 
 
@@ -158,7 +159,7 @@ function sanitizeNoteHtml(raw, maxText = MEASURE_NOTE_MAX) {
             skip = 1;
             const da = readAttrs(m[3]);
             const text = GF_DRAW.drawCanon(da['data-draw'] || '');
-            if (text && drawBlocks < NOTE_MAX_DRAWS && count < 400 && !stack.some(e => e.kind === 'frame')) {
+            if (text && drawBlocks < NOTE_MAX_DRAWS && count < NOTE_MAX_ELEMENTS && !stack.some(e => e.kind === 'frame')) {
                 out += `<div class="annot-draw" data-draw="${text}"${blockPlace(da)}></div>`;
                 drawBlocks++; count++; hasText = true;
             }
@@ -169,7 +170,7 @@ function sanitizeNoteHtml(raw, maxText = MEASURE_NOTE_MAX) {
             skip = 1;
             const ca = readAttrs(m[3]);
             const text = GF_CHORDS.chordsCanon(ca['data-chords'] || '');
-            if (text && chordBlocks < NOTE_MAX_CHORDS && count < 400 && !stack.some(e => e.kind === 'frame')) {
+            if (text && chordBlocks < NOTE_MAX_CHORDS && count < NOTE_MAX_ELEMENTS && !stack.some(e => e.kind === 'frame')) {
                 out += `<div class="annot-chords" data-chords="${text}"${blockPlace(ca)}></div>`;
                 chordBlocks++; count++; hasText = true;
             }
@@ -179,7 +180,7 @@ function sanitizeNoteHtml(raw, maxText = MEASURE_NOTE_MAX) {
             skip = 1;
             const sa = readAttrs(m[3]);
             const text = GF_STAFF.parseStaff(sa['data-staff'] || '');
-            if (text && staves < NOTE_MAX_STAVES && count < 400 && !stack.some(e => e.kind === 'frame')) {
+            if (text && staves < NOTE_MAX_STAVES && count < NOTE_MAX_ELEMENTS && !stack.some(e => e.kind === 'frame')) {
                 out += `<div class="annot-staff" data-staff="${GF_STAFF.formatStaff(text)}"${blockPlace(sa)}></div>`;
                 staves++; count++; hasText = true;
             }
@@ -187,7 +188,7 @@ function sanitizeNoteHtml(raw, maxText = MEASURE_NOTE_MAX) {
         }
         // Cadre de texte : un <div data-frame="…"> dont le contenu (texte mis en forme) est nettoyé comme le reste. Un cadre invalide, ou placé
         // dans un autre cadre, devient un simple bloc de texte.
-        if (!closing && name === 'div' && /\bdata-frame\s*=/i.test(m[3]) && frames < NOTE_MAX_FRAMES && count < 400 && stack.length < 16 && !stack.some(e => e.kind === 'frame')) {
+        if (!closing && name === 'div' && /\bdata-frame\s*=/i.test(m[3]) && frames < NOTE_MAX_FRAMES && count < NOTE_MAX_ELEMENTS && stack.length < 16 && !stack.some(e => e.kind === 'frame')) {
             const fa = readAttrs(m[3]);
             const box = GF_STAFF.parseFrameBox(fa['data-frame'] || '');
             if (box) {
@@ -199,7 +200,7 @@ function sanitizeNoteHtml(raw, maxText = MEASURE_NOTE_MAX) {
         }
         const kind = NOTE_TAGS[name];
         if (!kind) continue;
-        if (kind === 'br') { if (!closing && count < 400) { out += '<br>'; count++; } continue; }
+        if (kind === 'br') { if (!closing && count < NOTE_MAX_ELEMENTS) { out += '<br>'; count++; } continue; }
         if (closing) {
             let k = stack.length - 1;
             while (k >= 0 && stack[k].kind !== kind && !(kind === 'div' && stack[k].kind === 'frame')) k--; // un </div> ferme aussi un cadre
@@ -219,7 +220,7 @@ function sanitizeNoteHtml(raw, maxText = MEASURE_NOTE_MAX) {
             }
             style = noteStyle(css);
         }
-        const emit = count < 400 && stack.length < 16 && (kind !== 'span' || !!style);
+        const emit = count < NOTE_MAX_ELEMENTS && stack.length < 16 && (kind !== 'span' || !!style);
         if (emit) { out += `<${kind}${style ? ` style="${style}"` : ''}>`; count++; }
         stack.push({ kind, emitted: emit });
     }

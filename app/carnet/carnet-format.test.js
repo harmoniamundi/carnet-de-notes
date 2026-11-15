@@ -33,7 +33,7 @@ describe('blocs d\'accords', () => {
     test('bord caché conservé ; pas de bloc d\'accords dans un cadre de texte ; limite par page', () => {
         assert.match(F.sanitizeNoteHtml(chords('b|0~maj7~4', ' data-border="0"')), /data-border="0"/);
         assert.ok(!/annot-chords/.test(F.sanitizeNoteHtml(frame(chords('b|0~maj7~4')))));
-        const many = chords('b|0~maj7~4').repeat(30);
+        const many = chords('b|0~maj7~4').repeat(F.NOTE_MAX_CHORDS + 30);
         assert.equal((F.sanitizeNoteHtml(many).match(/annot-chords/g) || []).length, F.NOTE_MAX_CHORDS);
     });
     test('mélangé aux cadres et aux portées', () => {
@@ -121,7 +121,7 @@ describe('cadres de dessin', () => {
     test('bord caché conservé ; pas de dessin dans un cadre de texte ; limite par page', () => {
         assert.match(F.sanitizeNoteHtml(draw('320,200', ' data-border="0"')), /data-border="0"/);
         assert.ok(!/annot-draw/.test(F.sanitizeNoteHtml(frame(draw('320,200')))));
-        assert.equal((F.sanitizeNoteHtml(draw('320,200').repeat(20)).match(/annot-draw/g) || []).length, F.NOTE_MAX_DRAWS);
+        assert.equal((F.sanitizeNoteHtml(draw('320,200').repeat(F.NOTE_MAX_DRAWS + 20)).match(/annot-draw/g) || []).length, F.NOTE_MAX_DRAWS);
     });
     test('les traits ne comptent pas dans la limite du texte de la page', () => {
         const big = '320,200|' + Array.from({ length: 40 }, () => '0f172a.3:10,10,' + Array.from({ length: 100 }, () => '1,1').join(',')).join('|');
@@ -143,5 +143,20 @@ describe('réglages du carnet', () => {
     test('l\'instrument par défaut d\'un carnet neuf est Si♭', () => {
         assert.equal(F.newCarnet().settings.instrument, 'Bb');
         assert.equal(F.sanitizeCarnetSettings(null).instrument, 'Bb');
+    });
+});
+
+describe('limites d\'une page', () => {
+    test('50 portées, 50 cadres de texte, 50 blocs d\'accords et 50 dessins par page, pas un de plus', () => {
+        assert.equal(F.NOTE_MAX_STAVES, 50);
+        assert.equal(F.NOTE_MAX_FRAMES, 50);
+        assert.equal(F.NOTE_MAX_CHORDS, 50);
+        assert.equal(F.NOTE_MAX_DRAWS, 50);
+    });
+    test('50 cadres de texte de quelques lignes mises en forme tiennent tous dans une page (ni le texte ni le nombre d\'éléments ne les coupent)', () => {
+        const fr = (i) => `<div data-frame="200" data-at="${10 + i},${10 + i}"><b>Titre ${i}</b><br><div>ligne un de ce cadre numéro ${i}</div><div>ligne deux</div><div>ligne trois</div></div>`;
+        const html = F.sanitizeNoteHtml(Array.from({ length: 50 }, (_, i) => fr(i)).join(''), F.PAGE_NOTE_MAX);
+        assert.equal((html.match(/annot-frame/g) || []).length, 50);
+        assert.match(html, /Titre 49/);
     });
 });
