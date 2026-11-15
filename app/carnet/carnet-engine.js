@@ -111,6 +111,17 @@ class CarnetApp {
             ev.preventDefault();
             if (key === 'y' || ev.shiftKey) this.redo(); else this.undo();
         });
+        document.addEventListener('keydown', (ev) => { // ⌘C / ⌘X / ⌘V quand le focus n'est pas dans la page (après un clic sur un onglet, un bouton de l'en-tête…) : ils visent quand même les blocs de la page
+            const mod = (ev.metaKey || ev.ctrlKey) && !ev.altKey && !ev.shiftKey, key = String(ev.key).toLowerCase();
+            if (!mod || (key !== 'c' && key !== 'x' && key !== 'v') || ev.defaultPrevented) return;
+            const ed = this.zone;
+            if (!ed || !this._annotIsEditable(ed) || this._syncModal || this._menu) return;
+            if (ev.target && ev.target.closest && ev.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+            if (key === 'v') { try { ed.focus({ preventScroll: true }); } catch (e) {} return; } // le collage que le navigateur lance ensuite arrive sur la page
+            const cv = ed.__canvas;
+            if (cv && cv.picked().length) { ev.preventDefault(); this.annotCopyBlocks(ed, key === 'x'); }
+            else if (window.getSelection().isCollapsed) this._annotNote('Rien à copier : cliquez d\'abord sur un bloc de la page.');
+        });
         document.addEventListener('pointerdown', (ev) => {
             const m = this._menu;
             if (m && !m.el.contains(ev.target) && !(m.anchor && m.anchor.contains(ev.target))) this._closeMenu();
@@ -628,7 +639,7 @@ class CarnetApp {
     }
 
     // Petit message en bas de l'écran, qui s'efface seul.
-    _syncNote(text, isError) {
+    _syncNote(text, isError, ms) {
         let t = document.getElementById('cn-sync-toast');
         if (!t) {
             t = document.createElement('div');
@@ -641,7 +652,7 @@ class CarnetApp {
         t.classList.toggle('is-error', !!isError);
         t.hidden = false;
         clearTimeout(this._syncToastT);
-        this._syncToastT = setTimeout(() => { t.hidden = true; }, isError ? 9000 : 6000);
+        this._syncToastT = setTimeout(() => { t.hidden = true; }, ms || (isError ? 9000 : 6000));
     }
 
     _syncWhen(iso) {
@@ -1001,7 +1012,12 @@ class CarnetApp {
         const sv = (typeof NSE_ACTIVE !== 'undefined') ? NSE_ACTIVE : null;
         const inStaff = !!(sv && ed && ed.contains(sv.el));
         if (inStaff && sv.handleKey(ev)) { ev.preventDefault(); return; }
-        if (ev.target && ev.target.closest && ev.target.closest('.annot-frame-body')) return; // on écrit dans un cadre : le navigateur s'en charge (et annule la frappe)
+        if (ev.target && ev.target.closest && ev.target.closest('.annot-frame-body')) {
+            // On écrit dans un cadre : le navigateur s'en charge (et annule la frappe). Seule exception : ⌘C sans texte sélectionné (le navigateur ne copierait rien) copie le cadre entier.
+            const fr = ev.target.closest('.annot-frame'), sel = window.getSelection();
+            if (mod && key.toLowerCase() === 'c' && !ev.shiftKey && fr && sel && sel.isCollapsed) { ev.preventDefault(); this.annotCopyBlocks(ed, false, [fr]); }
+            return;
+        }
         // ⌘Z / ⌘⇧Z (ou ⌘Y) sur la zone : annule ou rétablit la dernière modification du carnet (déplacement, ajout ou retrait de bloc, texte validé…).
         if (mod && (key.toLowerCase() === 'z' || key.toLowerCase() === 'y')) {
             ev.preventDefault();
@@ -1047,11 +1063,29 @@ class CarnetApp {
         ev.preventDefault();
         const ed = ev.currentTarget;
         const t = (ev.clipboardData || window.clipboardData).getData('text/plain');
-        if (!t) return;
+        if (!this._annotIsEditable(ed)) return;
+        if (!t) { this._annotNote('Rien à coller : le presse-papiers est vide ou ne contient pas de texte.'); return; }
         const parts = drawSplitClips(t);
+        const hasBlocks = parts.some(p => p.staff || p.frame || p.chords || p.draw);
         const inFrame = !!(ev.target && ev.target.closest && ev.target.closest('.annot-frame-body'));
-        if (inFrame) document.execCommand('insertText', false, parts.map(p => p.text || '').join('')); // un cadre ne contient que du texte : ni portée ni autre cadre dedans
-        else if (this._annotIsEditable(ed)) this._annotPasteParts(ed, parts);
+        // Dans un cadre en édition, du texte se colle comme texte (un cadre ne contient que du texte : ni portée ni autre cadre dedans) ;
+        // mais si le presse-papiers contient des blocs, on sort du cadre et on les colle sur la page, au lieu de ne rien faire.
+        if (inFrame && !hasBlocks) { document.execCommand('insertText', false, parts.map(p => p.text || '').join('')); return; }
+        if (inFrame) this._annotLeaveFrame();
+        this._annotPasteParts(ed, parts, this._annotNextRun(t));
+    }
+
+    // Numéro du collage : 1 au premier collage d'un presse-papiers, puis 2, 3… tant qu'on colle le même (chaque copie est alors décalée d'un cran de plus).
+    _annotNextRun(text) {
+        this._pasteRun = (this._pasteRun && this._pasteRun.text === text) ? { text, n: this._pasteRun.n + 1 } : { text, n: 1 };
+        return this._pasteRun.n;
+    }
+
+    // Petit message en bas de l'écran (copie réussie, collage refusé…) : on sait toujours ce qui s'est passé.
+    _annotNote(text, isError) { this._syncNote(text, isError, isError ? 7000 : 2500); }
+
+    _annotCopiedNote(count, cut) {
+        this._annotNote(cut ? (count > 1 ? `${count} blocs coupés` : 'Bloc coupé') : (count > 1 ? `${count} blocs copiés` : 'Bloc copié'));
     }
 
     // Copier / couper par l'événement du navigateur (menu Édition, par exemple) : mêmes blocs et même texte que ⌘C / ⌘X au clavier (annotKeydown).
@@ -1064,10 +1098,12 @@ class CarnetApp {
         let text = null, removeActive = null;
         if (els.length) text = carnetBlocksToClipText(els);
         else if (sv && ed.contains(sv.el)) { text = staffClipText(sv.st); removeActive = sv; }
-        if (text === null) return;
+        if (text === null) { this._annotNote('Rien à copier : cliquez d\'abord sur un bloc de la page.'); return; }
         ev.preventDefault();
         ev.clipboardData.setData('text/plain', text);
         this._annotRememberClip(text);
+        this._pasteRun = null;
+        this._annotCopiedNote(els.length || 1, cut && this._annotIsEditable(ed));
         if (!cut || !this._annotIsEditable(ed)) return;
         if (removeActive) { removeActive.destroy(); removeActive.el.remove(); this._annotCommit(ed); } else this._annotRemoveBlocks(ed, els);
     }
@@ -1077,10 +1113,11 @@ class CarnetApp {
         if (first) this._staffClip = first.staff;
     }
 
-    // Écrit dans le presse-papiers du système (l'API moderne d'abord, sinon l'ancienne méthode par un champ temporaire).
-    _annotWriteClipboard(text) {
-        try { if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).catch(() => this._annotLegacyCopy(text)); return; } } catch (e) {}
-        this._annotLegacyCopy(text);
+    // Écrit dans le presse-papiers du système (l'API moderne d'abord, sinon l'ancienne méthode par un champ temporaire) ; done(true/false) dit si l'écriture a réussi.
+    _annotWriteClipboard(text, done) {
+        const end = (ok) => { if (done) done(!!ok); };
+        try { if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(() => end(true), () => end(this._annotLegacyCopy(text))); return; } } catch (e) {}
+        end(this._annotLegacyCopy(text));
     }
 
     _annotLegacyCopy(text) {
@@ -1089,20 +1126,28 @@ class CarnetApp {
         document.body.appendChild(ta);
         const keep = document.activeElement;
         ta.select();
-        try { document.execCommand('copy'); } catch (e) {}
+        let ok = false;
+        try { ok = document.execCommand('copy'); } catch (e) {}
         ta.remove();
         if (keep && keep.focus) { try { keep.focus({ preventScroll: true }); } catch (e) {} }
+        return ok;
     }
 
-    // Copie (ou coupe) les blocs sélectionnés : le presse-papiers reçoit un repère par bloc, avec sa place et son cadre, que le collage sait relire,
-    // y compris dans l'autre zone d'annotation.
-    annotCopyBlocks(ed, cut = false) {
-        const cv = ed && ed.__canvas, els = cv ? cv.picked() : [];
+    // Copie (ou coupe) les blocs sélectionnés (ou, à défaut, els) : le presse-papiers reçoit un repère par bloc, avec sa place et son cadre, que le collage sait relire,
+    // y compris dans l'autre zone d'annotation. Un message dit si la copie a réussi.
+    annotCopyBlocks(ed, cut = false, els) {
+        const cv = ed && ed.__canvas;
+        els = els || (cv ? cv.picked() : []);
         if (!els.length) return false;
         const text = carnetBlocksToClipText(els);
-        this._annotWriteClipboard(text);
+        const removing = cut && this._annotIsEditable(ed);
+        this._pasteRun = null;
+        this._annotWriteClipboard(text, (ok) => {
+            if (ok) this._annotCopiedNote(els.length, removing);
+            else this._annotNote("Copie impossible : le navigateur refuse l'accès au presse-papiers.", true);
+        });
         this._annotRememberClip(text);
-        if (cut && this._annotIsEditable(ed)) this._annotRemoveBlocks(ed, els);
+        if (removing) this._annotRemoveBlocks(ed, els);
         return true;
     }
 
@@ -1126,8 +1171,9 @@ class CarnetApp {
     }
 
     // Crée des blocs dans la zone à partir de morceaux [{ text }] / [{ staff }] / [{ chords }] / [{ frame }] (collage). Un bloc copié avec sa place revient à cette place
-    // décalée de quelques pixels (pour voir qu'il s'agit d'un double) ; sans place, il prend la première place libre. Un texte ordinaire devient un cadre.
-    _annotPasteParts(ed, parts) {
+    // décalée de quelques pixels (d'un cran de plus à chaque collage du même presse-papiers : run), ou dans la partie visible de la page si cette place n'y est pas
+    // (acPasteOffset) ; sans place, il prend la première place libre. Un texte ordinaire devient un cadre. Ce qui ne rentre pas (limites par page) est signalé.
+    _annotPasteParts(ed, parts, run = 1) {
         if (!this._annotIsEditable(ed) || !ed.__canvas) return;
         const cv = ed.__canvas;
         let room = NOTE_MAX_STAVES - ed.querySelectorAll('.annot-staff').length;
@@ -1147,35 +1193,42 @@ class CarnetApp {
             rects.push({ x: at.x, y: at.y, w: w || 40, h: 24 });
             return true;
         };
-        const shift = (at) => ({ x: Math.min(SN_AT_MAX, at.x + AC_CASCADE), y: Math.min(SN_AT_MAX, at.y + AC_CASCADE) });
+        const zoom = this.annotZoom[this._annotZoneKey(ed)] || 1;
+        const off = acPasteOffset(parts.filter(p => p.at).map(p => p.at), { x: ed.scrollLeft / zoom, y: ed.scrollTop / zoom, w: ed.clientWidth / zoom, h: ed.clientHeight / zoom }, run);
+        const shift = (at) => ({ x: Math.max(0, Math.min(SN_AT_MAX, at.x + off.dx)), y: Math.max(0, Math.min(SN_AT_MAX, at.y + off.dy)) });
+        const full = [];  // limites atteintes (un message le dit, au lieu d'ignorer le bloc sans rien dire)
+        const noRoom = (label) => { if (!full.includes(label)) full.push(label); };
         for (const p of parts) {
             if (p.frame) {
-                if (roomFrames <= 0) continue;
+                if (roomFrames <= 0) { noRoom(`${NOTE_MAX_FRAMES} cadres de texte`); continue; }
                 const at = p.at ? shift(p.at) : acFreeSpot(rects);
                 const html = sanitizeNoteHtml(noteFrameStubHtml(parseFrameBox(p.frame.box), at, p.frame.html, !p.noBorder), max);
                 if (add(html, at, (parseFrameBox(p.frame.box) || {}).w)) roomFrames--;
             } else if (p.draw) {
-                if (roomDraw <= 0) continue;
+                if (roomDraw <= 0) { noRoom(`${NOTE_MAX_DRAWS} cadres de dessin`); continue; }
                 const at = p.at ? shift(p.at) : acFreeSpot(rects);
                 const st = drawParse(p.draw);
                 if (st && add(drawStubHtml(st, at, !p.noBorder), at, st.w)) roomDraw--;
             } else if (p.chords) {
-                if (roomChords <= 0) continue;
+                if (roomChords <= 0) { noRoom(`${NOTE_MAX_CHORDS} blocs d'accords`); continue; }
                 const at = p.at ? shift(p.at) : acFreeSpot(rects);
                 if (add(chordsStubHtml(chordsParse(p.chords), at, !p.noBorder), at, 160)) roomChords--;
             } else if (p.staff) {
-                if (room <= 0) continue;
+                if (room <= 0) { noRoom(`${NOTE_MAX_STAVES} portées`); continue; }
                 const at = p.at ? shift(p.at) : acFreeSpot(rects);
                 if (add(noteStaffStubHtml(parseStaff(p.staff), at, !p.noBorder), at, 200)) room--;
             } else if (p.text) {
                 const txt = p.text.replace(/ /g, ' ').replace(/^\s+|\s+$/g, '');
-                if (!txt || roomFrames <= 0) continue;
+                if (!txt) continue;
+                if (roomFrames <= 0) { noRoom(`${NOTE_MAX_FRAMES} cadres de texte`); continue; }
                 const w = Math.max(SN_FRAME_W_MIN, Math.min(SN_FRAME_W_DEFAULT, Math.floor(ed.clientWidth - 48)));
                 const at = acFreeSpot(rects);
                 const esc = txt.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                 if (add(sanitizeNoteHtml(noteFrameStubHtml({ w }, at, esc, false), max), at, w)) roomFrames--;
             }
         }
+        if (made.length && !parts.some(p => p.staff || p.frame || p.chords || p.draw)) this._annotNote('Texte collé dans un nouveau cadre (le presse-papiers ne contenait pas de bloc).');
+        if (full.length) this._annotNote(`${made.length ? 'Collage incomplet' : 'Rien n\'a été collé'} : une page contient au plus ${full.join(', ')}.`, true);
         if (!made.length) return;
         this._annotHydrate(ed);
         this._annotMoveUndo = true; this._annotMoveRedo = false;
@@ -1189,14 +1242,15 @@ class CarnetApp {
         const ed = this._annotActive;
         if (!this._annotIsEditable(ed)) return;
         this._annotLeaveFrame();
-        this._annotPasteParts(ed, [{ staff: this._staffClip }]);
+        this._annotPasteParts(ed, [{ staff: this._staffClip }], 1);
     }
 
     // Bouton « Copier » de la barre d'une portée : la portée en édition va dans le presse-papiers (et dans la mémoire de l'appli).
     annotCopyStaff(view) {
         if (!view) return;
         this._staffClip = formatStaff(view.st);
-        try { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(staffClipText(view.st)).catch(() => {}); } catch (e) {}
+        this._pasteRun = null;
+        this._annotWriteClipboard(staffClipText(view.st), (ok) => { if (ok) this._annotNote('Portée copiée'); });
     }
 
     // Quitter le champ valide l'annotation, sauf si le focus passe à la barre, à un menu ou à une portée de ce champ.
