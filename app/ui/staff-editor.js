@@ -273,6 +273,14 @@ function nseToolState(st, sel, selAuto, cur) {
     return e ? { d: e.d, dot: !!e.dot, tu: e.tu || 0, rest: !e.p } : { d: cur.d, dot: !!cur.dot, tu: cur.tu || 0, rest: !!cur.rest };
 }
 
+// Notes à dessiner en bleu : seulement celles que l'utilisateur a choisies. La note qu'une insertion vient de sélectionner d'office (selAuto) reste
+// bien active pour les flèches, les altérations et Suppr., mais elle n'est PAS bleue : bleu = « les boutons de durée, de point, de silence et de tuplet
+// agissent sur cette note » ; rien de bleu = « ils règlent la prochaine note posée ». Sans cela, une même note bleue réagissait ou non à un changement
+// de durée selon qu'on venait de la poser ou de cliquer dessus.
+function nseShownSelection(list, selAuto) {
+    return selAuto ? [] : list;
+}
+
 // ----- Barre d'outils de la portée (petites icônes dessinées, sans dépendre d'une police musicale) -----
 
 function nseNoteIcon(d) {
@@ -337,7 +345,7 @@ function nseToolsHtml(st, cur, jamPct) {
     return `
         <button type="button" class="ns-btn ns-txt ns-exit" data-act="exit" title="Revenir à la mise en forme du texte" aria-label="Revenir à la mise en forme du texte">◂ Texte</button>
         <span class="ns-sep"></span>
-        <div class="ns-grp" role="group" aria-label="Durée de la prochaine note">${dur}
+        <div class="ns-grp" role="group" aria-label="Durée : de la note bleue si une note est sélectionnée, sinon de la prochaine note posée">${dur}
             <button type="button" class="ns-btn" data-mod="dot" title="Note pointée (clavier : .)" aria-label="Note pointée"><b>•</b></button>
             <select class="ns-sel ns-sel-tup" data-set="tuplet" title="Tuplet : transforme la note sélectionnée en triolet, quintolet, sextolet… (vraies notes, dans la même durée) ; sans note sélectionnée, règle les prochaines notes. Clavier : t = triolet" aria-label="Tuplet">${nseTupletOptions(cur && cur.tu)}</select>
             <button type="button" class="ns-btn" data-mod="rest" title="Silence : le prochain clic pose un silence (clavier : r)" aria-label="Silence">${NSE_REST_ICON}</button>
@@ -447,7 +455,7 @@ class NoteStaffView {
         this.selSet = new Set(); // tous les événements sélectionnés (note, silence) ; contient `sel` dès qu'il n'est pas vide
         this.anchor = -1;       // point de départ d'une sélection étendue avec Maj
         this.multiMode = false; // mode « sélection multiple » (tactile) : toucher une note l'ajoute ou la retire du groupe
-        this.selAuto = false;   // sélection posée par l'insertion d'une note (les boutons de durée ne la modifient pas)
+        this.selAuto = false;   // sélection posée par l'insertion d'une note : non dessinée en bleu, et les boutons de durée ne la modifient pas (ils règlent la prochaine note)
         this.cur = { d: 'q', dot: false, tu: 0, rest: false }; // valeurs de la prochaine note
         this.history = [];
         this.geo = null;
@@ -537,7 +545,7 @@ class NoteStaffView {
         const active = this.isActive;
         this._lastWidth = this._availWidth();
         try {
-            this.geo = drawNoteStaff(this.svgHost, this.st, { width: this._lastWidth, selected: active ? this._selList() : [], compact: !active });
+            this.geo = drawNoteStaff(this.svgHost, this.st, { width: this._lastWidth, selected: active ? nseShownSelection(this._selList(), this.selAuto) : [], compact: !active });
         } catch (e) {
             this.geo = null;
             this.svgHost.textContent = 'Portée non affichable';
@@ -1517,5 +1525,5 @@ function nseBlocksToClipText(els) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { nseHandDrawn, nseSmallTimeSig, NSE_TIMESIG_SCALE, NSE_SPACING, NSE_BAND, NSE_TOP, nseToolsHtml, nseKeyAction, nseNearestLetter, nseNoteIcon, nseKeyOptions, nseToolState, nseBlocksToClipText, noteStaffStubHtml };
+    module.exports = { nseHandDrawn, nseSmallTimeSig, NSE_TIMESIG_SCALE, NSE_SPACING, NSE_BAND, NSE_TOP, nseToolsHtml, nseKeyAction, nseNearestLetter, nseNoteIcon, nseKeyOptions, nseToolState, nseShownSelection, nseBlocksToClipText, noteStaffStubHtml };
 }

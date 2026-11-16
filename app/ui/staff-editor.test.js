@@ -159,6 +159,25 @@ describe('nseToolState : ce que montrent les boutons durée / point / triolet / 
     });
 });
 
+describe('nseShownSelection : une note n\'est bleue que si les boutons de durée agissent sur elle', () => {
+    test('sélection voulue par l\'utilisateur : toutes les notes choisies sont en bleu', () => {
+        assert.deepEqual(E.nseShownSelection([1, 2], false), [1, 2]);
+        assert.deepEqual(E.nseShownSelection([], false), []);
+    });
+    test('note qui vient d\'être posée (sélection automatique) : pas de bleu, les boutons règlent la prochaine note', () => {
+        assert.deepEqual(E.nseShownSelection([3], true), []);
+    });
+    test('cohérence avec nseToolState : bleu si et seulement si les boutons montrent la note', () => {
+        const st = S.parseStaff('t,4/4,0;q:c4 8:e4');
+        const cur = { d: 'h', dot: false, tu: 0, rest: false };
+        for (const auto of [false, true]) {
+            const blue = E.nseShownSelection([1], auto).includes(1);
+            const buttonsShowNote = E.nseToolState(st, 1, auto, cur).d === '8';
+            assert.equal(blue, buttonsShowNote, `selAuto=${auto}`);
+        }
+    });
+});
+
 // Faux éléments DOM (le test tourne sans navigateur) : attributs, classes, et le texte d'un cadre.
 const El = (cls, attrs = {}, body = null) => ({
     classList: { contains: (c) => cls.includes(c) },
