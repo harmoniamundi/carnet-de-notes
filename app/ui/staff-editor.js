@@ -282,6 +282,13 @@ function nseShownSelection(list, selAuto) {
     return selAuto ? [] : list;
 }
 
+// Boîte de mise en page d'une zone ({ w, margin }) ou null (la largeur de la zone sert alors) : la feuille en mode page ; sur téléphone au repos, la feuille du
+// carnet (z.__layout) ; une portée en édition sur téléphone (fills) prend la largeur de l'écran. Pur : testé sans navigateur.
+function nseLayoutBox(z, fills) {
+    if (z && z.__sheet) return { w: z.__sheet.size.w, margin: z.__sheet.margin };
+    return !fills && z && z.__layout ? z.__layout : null;
+}
+
 // Indication de lecture écrite au-dessus de la portée, à gauche, comme sur une partition Real Book : « Swing » (dès que la lecture swingue, quel que soit
 // le réglage, et si la mesure le permet) puis « ♩ = tempo ». Le tempo est celui de la portée, sinon celui du carnet. Pur : testé sans navigateur.
 function nseTempoMarkInfo(st, jamBpm, jamSwing) {
@@ -542,8 +549,16 @@ class NoteStaffView {
     // La zone d'annotation qui contient la portée (sa largeur fixe la largeur de mise en page).
     _zone() { return this.el.closest('.jam-annot-text') || this.el.parentElement; }
 
-    // Largeur de mise en page de la zone : en mode page, celle de la feuille (elle ne change pas avec la fenêtre ni avec le zoom).
-    _zoneWidth(z) { return z.__sheet ? z.__sheet.size.w : z.clientWidth; }
+    // Téléphone : la portée en édition occupe tout le cadre de la zone (style.css), elle part donc du bord gauche et n'a pas de marge à droite.
+    _fills() { return this.isActive && !this.legacy && typeof acIsPhone === 'function' && acIsPhone(); }
+
+    // Boîte de mise en page de la zone : la feuille en mode page ; sur téléphone (pas de feuilles), la largeur de la feuille du carnet (z.__layout, posée par
+    // l'appli). Une même sauvegarde se met ainsi en page de la même façon sur tous les appareils : sinon, sur un écran étroit, les portées passaient à la ligne
+    // et recouvraient les blocs placés dessous. Seule la portée en cours d'édition sur téléphone (`fills`) prend la largeur de l'écran.
+    _layoutBox(z, fills) { return nseLayoutBox(z, fills); }
+
+    // Largeur de mise en page de la zone (elle ne change ni avec la fenêtre ni avec le zoom quand elle vient de la feuille).
+    _zoneWidth(z) { const b = this._layoutBox(z, this._fills()); return b ? b.w : z.clientWidth; }
 
     // Redessine la portée quand la largeur de sa zone change (fenêtre redimensionnée, panneau replié…).
     _observe() {
@@ -569,10 +584,10 @@ class NoteStaffView {
         if (!z) return this._lastWidth || 600;
         const px = (v) => parseFloat(v) || 0;
         const zs = getComputedStyle(z), es = getComputedStyle(this.el);
-        // Téléphone : la portée en édition occupe tout le cadre de la zone (style.css), elle part donc du bord gauche et n'a pas de marge à droite.
-        const fills = this.isActive && !this.legacy && typeof acIsPhone === 'function' && acIsPhone();
-        // Mode page : la portée se met en page entre les marges de la feuille (le bloc se pose donc à x = marge sans déborder à droite).
-        const zoneW = z.__sheet ? z.__sheet.size.w - 2 * z.__sheet.margin + (fills ? 0 : px(zs.paddingRight)) : z.clientWidth;
+        const fills = this._fills();
+        // Mode page (et téléphone au repos) : la portée se met en page entre les marges de la feuille (le bloc se pose donc à x = marge sans déborder à droite).
+        const box = this._layoutBox(z, fills);
+        const zoneW = box ? box.w - 2 * box.margin + (fills ? 0 : px(zs.paddingRight)) : z.clientWidth;
         const w = Math.floor(zoneW - (fills ? 0 : px(zs.paddingRight)) - px(es.paddingLeft) - px(es.paddingRight) - px(es.borderLeftWidth) - px(es.borderRightWidth) - (this.legacy ? px(zs.paddingLeft) : 0));
         return w > 120 ? w : Math.max(this._lastWidth || 0, 360);
     }
@@ -1605,5 +1620,5 @@ function nseBlocksToClipText(els) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { nseHandDrawn, nseSmallTimeSig, NSE_TIMESIG_SCALE, NSE_SPACING, NSE_BAND, NSE_TOP, nseToolsHtml, nseKeyAction, nseNearestLetter, nseNoteIcon, nseKeyOptions, nseToolState, nseShownSelection, nseTempoMarkInfo, nseBlocksToClipText, noteStaffStubHtml };
+    module.exports = { nseHandDrawn, nseSmallTimeSig, NSE_TIMESIG_SCALE, NSE_SPACING, NSE_BAND, NSE_TOP, nseToolsHtml, nseKeyAction, nseNearestLetter, nseNoteIcon, nseKeyOptions, nseToolState, nseShownSelection, nseTempoMarkInfo, nseLayoutBox, nseBlocksToClipText, noteStaffStubHtml };
 }

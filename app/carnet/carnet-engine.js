@@ -991,6 +991,21 @@ class CarnetApp {
         return sheetSize(st.paper, st.orient);
     }
 
+    // Largeur de mise en page des portées sur téléphone (pas de feuilles) : celle de la feuille du carnet, comme sur ordinateur et tablette. Les portées
+    // ne passent plus à la ligne selon l'écran, donc ne recouvrent plus les blocs placés dessous ; la zone se regarde avec le zoom.
+    _annotLayoutBox() {
+        if (typeof sheetSize !== 'function') return null;
+        const st = this.doc.settings || {}, s = sheetSize(st.paper, st.orient);
+        return s && s.w ? { w: s.w, margin: SHEET_MARGIN } : null;
+    }
+
+    _annotSetLayout(ed, box) {
+        const was = ed.__layout ? ed.__layout.w : 0;
+        ed.__layout = box;
+        ed.classList.toggle('is-laidout', !!box); // style.css : les portées gardent leur taille, même plus larges que l'écran
+        if (was !== (box ? box.w : 0)) ed.querySelectorAll('.annot-staff').forEach((s) => { if (s.__noteStaff && s.__noteStaff.render) s.__noteStaff.render(); });
+    }
+
     // Zoom de l'utilisateur sur la zone : relatif à la largeur de la feuille en mode page (100 % = la feuille remplit la largeur de la zone), absolu sinon.
     _annotUserZoom(ed) {
         return ed && ed.__sheet ? ed.__sheet.u : this.annotZoom[this._annotZoneKey(ed)];
@@ -1004,6 +1019,7 @@ class CarnetApp {
         if (!ed) return;
         const key = this._annotZoneKey(ed);
         const size = key === 'page' ? this._annotSheetSize() : null;
+        if (key === 'page') this._annotSetLayout(ed, size ? null : this._annotLayoutBox());
         if (size) {
             const cw = ed.clientWidth, ch = ed.clientHeight;
             if (!cw) return; // zone cachée : impossible de mesurer, on attend qu'elle s'affiche (observateur de taille)

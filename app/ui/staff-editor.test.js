@@ -192,6 +192,23 @@ describe('nseTempoMarkInfo : tempo et « Swing » écrits au-dessus de la porté
     });
 });
 
+describe('nseLayoutBox : la même mise en page des portées sur tous les appareils', () => {
+    const sheet = { size: { w: 794, h: 1123 }, margin: 38 };
+    test('mode page : la feuille', () => {
+        assert.deepEqual(E.nseLayoutBox({ __sheet: sheet }, false), { w: 794, margin: 38 });
+    });
+    test('téléphone au repos : la largeur de la feuille du carnet, pas celle de l\'écran', () => {
+        assert.deepEqual(E.nseLayoutBox({ __sheet: null, __layout: { w: 794, margin: 38 } }, false), { w: 794, margin: 38 });
+    });
+    test('téléphone, portée en édition : la largeur de l\'écran (null)', () => {
+        assert.equal(E.nseLayoutBox({ __sheet: null, __layout: { w: 794, margin: 38 } }, true), null);
+    });
+    test('sans rien : la largeur de la zone (null)', () => {
+        assert.equal(E.nseLayoutBox({}, false), null);
+        assert.equal(E.nseLayoutBox(null, false), null);
+    });
+});
+
 describe('nseShownSelection : une note n\'est bleue que si les boutons de durée agissent sur elle', () => {
     test('sélection voulue par l\'utilisateur : toutes les notes choisies sont en bleu', () => {
         assert.deepEqual(E.nseShownSelection([1, 2], false), [1, 2]);

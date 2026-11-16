@@ -198,6 +198,8 @@
 .jam-annot-text:not(.legacy-flow) > .annot-staff, .jam-annot-text:not(.legacy-flow) > .annot-frame { position: absolute; display: block; margin: 0; }
 /* Une portée en édition passe au-dessus des autres blocs ; elle garde sa place et prend la largeur de son dessin */
 .jam-annot-text:not(.legacy-flow) > .annot-staff.is-active { width: max-content; max-width: none; z-index: 20; }
+/* Téléphone, au repos : la portée garde sa taille de feuille (le canevas défile ou se zoome) au lieu de se réduire à la largeur de l'écran. */
+.jam-annot-text.is-laidout:not(.legacy-flow) > .annot-staff:not(.is-active) { width: max-content; max-width: none; }
 .jam-annot-text > .annot-frame.is-editing { z-index: 20; }
 /* Bloc sans bord : seul son contenu reste visible (un liseré apparaît au survol, à la sélection et à l'édition pour pouvoir le saisir) */
 .annot-staff.no-border, .annot-frame.no-border { border-color: transparent; background: transparent; box-shadow: none; }
