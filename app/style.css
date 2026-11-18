@@ -554,6 +554,19 @@ body { background: #121212; color: #f1f5f9; font: 14px/1.4 system-ui, -apple-sys
 .cn-modal-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .cn-modal-actions .cn-btn { height: 36px; }
 .cn-modal-actions .cn-btn[hidden] { display: none; }
+/* Panneau « Raccourcis clavier » */
+.cn-kb-card { width: min(520px, 100%); }
+.cn-kb-list { margin: 0 0 10px; }
+.cn-kb-group { margin: 12px 0 4px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: #94a3b8; }
+.cn-kb-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; border-bottom: 1px solid #2a2a2c; }
+.cn-kb-name { flex: 1; min-width: 0; }
+.cn-kb-key { min-width: 64px; height: 28px; padding: 0 10px; border-radius: 7px; border: 1px solid #3a3a3c; background: #2a2a2c; color: #e2e8f0; font: 600 13px system-ui, -apple-system, sans-serif; text-align: center; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; }
+button.cn-kb-key:hover { border-color: #60a5fa; }
+.cn-kb-key.is-custom { border-color: #2563eb; color: #bfdbfe; }
+.cn-kb-row.is-wait .cn-kb-key { border-color: #f59e0b; color: #fde68a; font-weight: 500; }
+.cn-kb-row.is-fixed .cn-kb-key { cursor: default; opacity: .7; }
+.cn-kb-reset { width: 28px; height: 28px; border-radius: 7px; border: 1px solid #3a3a3c; background: transparent; color: #cbd5e1; cursor: pointer; }
+.cn-kb-reset[hidden] { visibility: hidden; display: inline-block; }
 .cn-btn-primary { background: #2563eb; border-color: #3b82f6; color: #fff; }
 .cn-btn-primary:hover:not(:disabled) { background: #3b82f6; border-color: #93c5fd; }
 .cn-btn-danger { color: #fca5a5; }

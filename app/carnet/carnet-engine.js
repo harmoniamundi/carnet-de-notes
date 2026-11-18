@@ -38,7 +38,7 @@ class CarnetApp {
             getSaved: () => this.getSaved(),
             setSaved: (obj) => this._storeSaved(obj)
         });
-        this._syncBusy = false; this._syncAgain = false; this._syncT = null; this._syncModal = null;
+        this._syncBusy = false; this._syncAgain = false; this._syncT = null; this._syncModal = null; this._kbModal = null;
         this.audioCtx = null;
         this.pianoInstrument = null;
         this.reverbInput = null;
@@ -102,7 +102,8 @@ class CarnetApp {
             if (b) this.startRenamePage(parseInt(b.dataset.i, 10));
         });
         document.addEventListener('keydown', (ev) => { // ⌘S enregistre, même quand on écrit dans un cadre (sinon le navigateur proposerait d'enregistrer la page)
-            if ((ev.metaKey || ev.ctrlKey) && !ev.altKey && String(ev.key).toLowerCase() === 's') { ev.preventDefault(); this.saveCurrent(); }
+            if (this._kbModal) return; // le panneau des raccourcis écoute les touches
+            if (Shortcuts.kbMatch(ev, 'save')) { ev.preventDefault(); this.saveCurrent(); }
         }, true);
         document.addEventListener('keydown', (ev) => { // ⌘Z / ⌘⇧Z / ⌘Y hors saisie
             const mod = (ev.metaKey || ev.ctrlKey) && !ev.altKey, key = String(ev.key).toLowerCase();
@@ -115,7 +116,7 @@ class CarnetApp {
             const mod = (ev.metaKey || ev.ctrlKey) && !ev.altKey && !ev.shiftKey, key = String(ev.key).toLowerCase();
             if (!mod || (key !== 'c' && key !== 'x' && key !== 'v') || ev.defaultPrevented) return;
             const ed = this.zone;
-            if (!ed || !this._annotIsEditable(ed) || this._syncModal || this._menu) return;
+            if (!ed || !this._annotIsEditable(ed) || this._syncModal || this._kbModal || this._menu) return;
             if (ev.target && ev.target.closest && ev.target.closest('input, textarea, select, [contenteditable="true"]')) return;
             if (key === 'v') { try { ed.focus({ preventScroll: true }); } catch (e) {} return; } // le collage que le navigateur lance ensuite arrive sur la page
             const cv = ed.__canvas;
@@ -136,9 +137,11 @@ class CarnetApp {
         window.addEventListener('online', () => this._syncSoon(500));
         window.addEventListener('afterprint', () => this._printCleanup());
         window.addEventListener('beforeprint', () => { if (!document.getElementById('cn-print')) { try { this._flush(); this._printBuild(false); } catch (e) {} } }); // Fichier ▸ Imprimer du navigateur
-        document.addEventListener('keydown', (ev) => { // ⌘P / Ctrl+P : la page, feuille par feuille
-            if ((ev.metaKey || ev.ctrlKey) && !ev.altKey && !ev.shiftKey && String(ev.key).toLowerCase() === 'p') { ev.preventDefault(); this.printCarnet(false); }
+        document.addEventListener('keydown', (ev) => { // ⌘P / Ctrl+P (ou le raccourci choisi) : la page, feuille par feuille
+            if (this._kbModal) return;
+            if (Shortcuts.kbMatch(ev, 'print')) { ev.preventDefault(); this.printCarnet(false); }
         }, true);
+        this.refreshShortcutTitles();
     }
 
     // ===== État du document, annulation =====
@@ -801,6 +804,96 @@ class CarnetApp {
         const now = document.getElementById('cn-sync-now'), stop = document.getElementById('cn-sync-stop');
         if (now) { now.hidden = !cfg; now.disabled = this._syncBusy; }
         if (stop) stop.hidden = !cfg;
+    }
+
+    // ===== Raccourcis clavier personnalisables (ui/shortcuts.js) =====
+
+    // Infobulles de l'en-tête qui citent un raccourci.
+    refreshShortcutTitles() {
+        const save = document.getElementById('cn-save'), print = document.getElementById('cn-print-btn');
+        if (save) save.title = `Sauvegarder le carnet${Shortcuts.kbBinding('save') ? ` (${Shortcuts.kbLabel(Shortcuts.kbBinding('save'))})` : ''}`;
+        if (print) print.title = `Imprimer${Shortcuts.kbBinding('print') ? ` (${Shortcuts.kbLabel(Shortcuts.kbBinding('print'))})` : ''} : une feuille imprimée par feuille de la page, au format choisi`;
+    }
+
+    closeShortcutsPanel() {
+        const m = this._kbModal;
+        if (!m) return;
+        this._kbModal = null;
+        if (m._onKey) document.removeEventListener('keydown', m._onKey, true);
+        m.remove();
+        this.refreshShortcutTitles();
+        if (typeof NSE_ACTIVE !== 'undefined' && NSE_ACTIVE && NSE_ACTIVE.tools) { try { NSE_ACTIVE._renderTools(); NSE_ACTIVE._refreshTools(); } catch (e) { /* barre refaite à la prochaine ouverture */ } } // infobulles à jour
+    }
+
+    openShortcutsPanel() {
+        this._closeMenu();
+        if (this._kbModal) return;
+        const K = Shortcuts;
+        const el = document.createElement('div');
+        el.className = 'cn-modal';
+        el.setAttribute('role', 'dialog');
+        el.setAttribute('aria-modal', 'true');
+        el.setAttribute('aria-labelledby', 'cn-kb-h');
+        let waiting = null; // id de l'action dont on attend la nouvelle touche
+        const groups = [];
+        K.KB_ACTIONS.forEach((a) => { let g = groups.find(x => x.name === a.group); if (!g) groups.push(g = { name: a.group, list: [] }); g.list.push(a); });
+        const render = (msg, isErr) => {
+            const rows = groups.map(g => `<h3 class="cn-kb-group">${cnEsc(g.name)}</h3>` + g.list.map((a) => {
+                const c = K.kbBinding(a.id), custom = c !== a.def;
+                return `<div class="cn-kb-row${waiting === a.id ? ' is-wait' : ''}"><span class="cn-kb-name">${cnEsc(a.label)}</span>
+                    <button type="button" class="cn-kb-key${custom ? ' is-custom' : ''}" data-kb="${a.id}" title="Cliquer puis appuyer sur la nouvelle touche (Échap : annuler ; Suppr. : aucun raccourci)">${waiting === a.id ? 'Appuyez sur une touche…' : cnEsc(K.kbLabel(c))}</button>
+                    <button type="button" class="cn-kb-reset" data-kb-reset="${a.id}" title="Revenir à ${cnEsc(K.kbLabel(a.def))}" aria-label="Revenir au raccourci par défaut"${custom ? '' : ' hidden'}>↺</button></div>`;
+            }).join('')).join('');
+            const fixed = K.KB_FIXED.map(([c, t]) => `<div class="cn-kb-row is-fixed"><span class="cn-kb-name">${cnEsc(t)}</span><span class="cn-kb-key">${cnEsc(K.kbLabel(c))}</span></div>`).join('');
+            el.innerHTML = `<div class="cn-modal-card cn-kb-card">
+                <h2 id="cn-kb-h">Raccourcis clavier</h2>
+                <p class="cn-modal-p">Cliquez sur un raccourci puis appuyez sur la touche (ou la combinaison) voulue. Si elle servait déjà, l'autre action la perd. Les raccourcis de la portée agissent quand une portée est en édition. Réglage gardé sur cet appareil.</p>
+                <div class="cn-modal-status${isErr ? ' is-error' : ''}" role="status" aria-live="polite">${msg ? cnEsc(msg) : ''}</div>
+                <div class="cn-kb-list">${rows}<h3 class="cn-kb-group">Fixes</h3>${fixed}</div>
+                <div class="cn-modal-actions">
+                    <button type="button" class="cn-btn" data-kb-all="1">Tout rétablir</button>
+                    <button type="button" class="cn-btn cn-btn-primary" data-kb-close="1">Fermer</button>
+                </div>
+            </div>`;
+            const w = waiting && el.querySelector(`[data-kb="${waiting}"]`);
+            if (w) w.focus();
+        };
+        const label = (id) => { const a = K.KB_ACTIONS.find(x => x.id === id); return a ? a.label : id; };
+        el.addEventListener('click', (ev) => {
+            const b = ev.target.closest('button');
+            if (!b) return;
+            if (b.dataset.kbClose) { this.closeShortcutsPanel(); return; }
+            if (b.dataset.kbAll) { if (confirm('Rétablir tous les raccourcis par défaut ?')) { K.kbReset(); waiting = null; render('Raccourcis par défaut rétablis.'); } return; }
+            if (b.dataset.kbReset) { K.kbReset(b.dataset.kbReset); waiting = null; render(`« ${label(b.dataset.kbReset)} » : ${K.kbLabel(K.kbBinding(b.dataset.kbReset))}`); return; }
+            if (b.dataset.kb) { waiting = waiting === b.dataset.kb ? null : b.dataset.kb; render(waiting ? `Nouvelle touche pour « ${label(waiting)} » ?` : ''); }
+        });
+        el.addEventListener('pointerdown', (ev) => { if (ev.target === el) this.closeShortcutsPanel(); });
+        const onKey = (ev) => {
+            if (!this._kbModal) return;
+            if (!waiting) {
+                if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); this.closeShortcutsPanel(); }
+                return;
+            }
+            if (ev.key === 'Tab') return;
+            ev.preventDefault();
+            ev.stopPropagation();
+            const id = waiting;
+            if (ev.key === 'Escape') { waiting = null; render(''); return; }
+            if (ev.key === 'Delete' || ev.key === 'Backspace') { waiting = null; K.kbSet(id, ''); render(`« ${label(id)} » n'a plus de raccourci.`); return; }
+            const combo = K.kbCombo(ev);
+            if (!combo) return; // touche de modification seule : on attend la suite
+            const r = K.kbSet(id, combo);
+            if (!r.ok) { render(r.error, true); return; }
+            waiting = null;
+            render(`« ${label(id)} » : ${K.kbLabel(combo)}${r.replaced ? ` — retiré de « ${label(r.replaced)} »` : ''}`);
+        };
+        el._onKey = onKey;
+        document.addEventListener('keydown', onKey, true);
+        document.body.appendChild(el);
+        this._kbModal = el;
+        render('');
+        const first = el.querySelector('[data-kb]');
+        if (first) first.focus();
     }
 
     closeSyncPanel() {
